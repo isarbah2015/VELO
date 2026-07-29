@@ -1,0 +1,149 @@
+What is VELO?
+VELO is a premium ride-hailing app designed exclusively for bike (motorcycle/okada) transportation in Ghana. Think of it as Uber for bikes — but built specifically for Ghanaian riders with local features, payments, and safety in mind.
+
+The Problem We're Solving
+Issue	How VELO Fixes It
+Unsafe okada rides	Verified drivers, GPS tracking, emergency SOS
+Unfair pricing	Transparent fare calculator (base + per km + per min)
+Cash-only payments	Mobile Money (MTN MoMo, Vodafone Cash, AirtelTigo) + card
+No driver accountability	Rating system, driver profiles, Ghana Card verification
+Hard to find bikes	Live map showing nearby bikers with ETA
+No ride history	Complete ride history with receipts
+Safety concerns	Share ride with family, emergency contacts, real-time tracking
+Who Uses VELO?
+1. Riders (Passengers)
+People in Accra, Kumasi, Tema, and other Ghanaian cities
+
+Need fast, affordable transportation
+
+Want safety and transparency
+
+Prefer cashless payments (MoMo)
+
+2. Bikers (Drivers)
+Motorcycle/okada drivers
+
+Want more rides and fair earnings
+
+Need GPS navigation and ride management
+
+Want to build a reputation with ratings
+
+Core Features
+Feature	Description
+🚀 Book a Ride	Enter destination, choose bike type, get instant price estimate
+🏍️ Bike Selection	Choose Standard, Premium, or Group bike with 3D preview
+📍 Live Tracking	Real-time map showing your biker's location and ETA
+💰 Transparent Pricing	Base fare ₵5 + ₵2.50/km + ₵0.50/min in GHS
+💳 Mobile Money	Pay with MTN MoMo, Vodafone Cash, AirtelTigo
+🆘 Emergency SOS	One-tap emergency alert with location sharing
+👤 Driver Verification	Ghana Card ID, photo, rating, and reviews
+📊 Ride History	Complete record of all rides with receipts
+🎁 Referral Program	"Invite a friend, get ₵10"
+⭐ Rating System	Rate drivers, hold them accountable
+👨‍✈️ Driver Dashboard	Earnings, ride requests, performance stats
+🌍 Localized	English, Twi, Ga, Hausa support
+How It Works
+text
+1. Open App
+   ↓
+2. Enter Destination
+   ↓
+3. Choose Bike Type (Standard/Premium/Group)
+   ↓
+4. See Price Estimate
+   ↓
+5. Confirm Ride
+   ↓
+6. Biker Accepts & Arrives
+   ↓
+7. Track Ride in Real-Time
+   ↓
+8. Arrive at Destination
+   ↓
+9. Pay via Mobile Money/Card/Cash
+   ↓
+10. Rate Driver
+Bike Types
+Type	Passengers	Price/km	Best For
+Standard Bike	1	₵2.50	Quick, affordable solo rides
+Premium Bike	1	₵4.00	Comfortable, professional, longer rides
+Group Bike	2	₵3.50	Riding with a friend/family
+Pricing Breakdown (Example)
+text
+Ride: Accra Mall → Osu (8km, 20min)
+
+Base Fare: ₵5.00
+Distance (8km × ₵2.50): ₵20.00
+Time (20min × ₵0.50): ₵10.00
+Peak Multiplier (1.2x): ₵7.00
+━━━━━━━━━━━━━━━━━━━━━
+Total: ₵42.00
+Payments in Ghana
+Method	Supported
+MTN MoMo	✅ Yes
+Vodafone Cash	✅ Yes
+AirtelTigo Cash	✅ Yes
+Bank Transfer	✅ Yes
+Cash	✅ Yes
+Credit/Debit Card	✅ Yes
+Safety Features
+🆘 Emergency SOS - One-tap sends location to emergency contacts
+
+📍 Live Location Sharing - Share ride with family/friends via WhatsApp
+
+🎥 Trip Recording - GPS tracking of entire ride
+
+⭐ Driver Ratings - Only verified, high-rated drivers
+
+🆔 Ghana Card Verification - All drivers verified
+
+📞 In-App Calling - Contact driver without sharing personal number
+
+🚨 Police/Emergency Contacts - Quick access to emergency services
+
+Why "VELO"?
+Velo comes from:
+
+Velocity - Speed and fast transportation
+
+Velocipede - Early bicycle/motorcycle term
+
+"Velo" - Means "I see" in Latin (trust and visibility)
+
+Target Market
+City	Population	Bike Users
+Accra	4+ million	High
+Kumasi	3+ million	High
+Tema	1+ million	Medium
+Takoradi	500k+	Medium
+Competitive Advantage
+Feature	VELO	Uber	Bolt	Yango
+Bike-Only Focus	✅	❌	❌	❌
+Mobile Money	✅	❌	❌	❌
+Local Languages	✅	❌	❌	❌
+Ghana-Specific	✅	❌	❌	❌
+Emergency SOS	✅	❌	❌	❌
+Transparent Pricing	✅	❌	❌	❌
+Ghana Card ID	✅	❌	❌	❌
+Share Ride	✅	❌	❌	❌
+The Vision
+"To become Ghana's most trusted and preferred bike ride platform — connecting riders to safe, professional bikers with transparent pricing and local-first features."
+
+Summary
+VELO is:
+
+🇬🇭 Ghana's premium bike ride app
+
+🏍️ Uber for bikes (okada)
+
+💰 Pays with Mobile Money (MTN MoMo, Vodafone Cash, AirtelTigo)
+
+🛡️ Safe with emergency SOS, tracking, verified drivers
+
+📱 Beautiful dark theme with 3D animations
+
+🎯 Built for Ghanaians, by Ghanaians
+
+Tagline: "Ride Safe. Ride Fast. Ride VELO." 🏍️🇬🇭
+
