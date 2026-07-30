@@ -14,27 +14,46 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { AppProvider } from '@/context/AppContext';
+import { AppProvider, useApp } from '@/context/AppContext';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
+// Inner component that waits for auth initialization before rendering Stack
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { authInitialized } = useApp();
+
+  // Don't render the navigation tree until Firebase has finished
+  // checking the persisted auth state. This prevents the login screen
+  // from flashing briefly on every app restart.
+  if (!authInitialized) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color="#FFD000" />
+      </View>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding" options={{ headerShown: false, animation: 'fade' }} />
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="tracking" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="payment-methods" options={{ headerShown: false }} />
-      <Stack.Screen name="add-payment" options={{ headerShown: false }} />
-      <Stack.Screen name="wallet" options={{ headerShown: false }} />
-      <Stack.Screen name="payment-confirmation" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="(driver-tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="driver-history" options={{ headerShown: false }} />
+    <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      <Stack.Screen name="onboarding" />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="(driver-tabs)" />
+      <Stack.Screen name="tracking" />
+      <Stack.Screen name="wallet" />
+      <Stack.Screen name="payment-methods" />
+      <Stack.Screen name="add-payment" />
+      <Stack.Screen name="payment-confirmation" />
+      <Stack.Screen name="privacy-policy" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="terms-of-service" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }
@@ -57,19 +76,30 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <AppProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <KeyboardProvider>
           <QueryClientProvider client={queryClient}>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <KeyboardProvider>
-                <RootLayoutNav />
-                {!splashDone && <AnimatedSplash onDone={() => setSplashDone(true)} />}
-              </KeyboardProvider>
-            </GestureHandlerRootView>
+            <AppProvider>
+              <ErrorBoundary>
+                <AuthGate>
+                  {!splashDone && <AnimatedSplash onComplete={() => setSplashDone(true)} />}
+                  {splashDone && <RootLayoutNav />}
+                </AuthGate>
+              </ErrorBoundary>
+            </AppProvider>
           </QueryClientProvider>
-        </AppProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+        </KeyboardProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    backgroundColor: '#09090B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

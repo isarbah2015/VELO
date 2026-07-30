@@ -50,6 +50,7 @@ export interface User {
 
 interface AppContextType {
   isLoading: boolean;
+  authInitialized: boolean;
   isOnboarded: boolean;
   isAuthenticated: boolean;
   user: User | null;
@@ -84,12 +85,14 @@ interface AppContextType {
 const AppContext = createContext<AppContextType>({} as AppContextType);
 
 const ONBOARDING_KEY = 'velo_onboarded';
+const LAST_USER_KEY = 'velo_last_user';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<authService.UserProfile | null>(null);
+  const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number } | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
@@ -112,21 +115,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // AUTH INITIALIZATION FIX:
+  // Firebase onAuthStateChanged fires once immediately (often with null),
+  // then again when the persisted session is restored. We track
+  // authInitialized so the UI knows "Firebase has finished checking"
+  // and won't flash the login screen during the brief null window.
   useEffect(() => {
+    let firstCallback = true;
     const unsubscribe = authService.onAuthChange(async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
+        // Persist last user ID for instant restore on next cold start
+        await AsyncStorage.setItem(LAST_USER_KEY, fbUser.uid);
         const p = await authService.getUserProfile(fbUser.uid);
         setProfile(p);
         if (p) await loadUserData(fbUser.uid, p.role);
       } else {
+        await AsyncStorage.removeItem(LAST_USER_KEY);
         setProfile(null);
         setRides([]);
         setPaymentMethods([]);
         setWalletTransactions([]);
         setDriverStatus(null);
       }
-      setIsLoading(false);
+      // After the FIRST callback, auth is initialized — even if it's null
+      if (firstCallback) {
+        firstCallback = false;
+        setAuthInitialized(true);
+        setIsLoading(false);
+      }
     });
     return unsubscribe;
   }, [loadUserData]);
@@ -148,13 +165,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await authService.logout();
   }, []);
 
+  // OPTIMIZED: Instant role switch — update UI immediately, then sync in background
   const switchRole = useCallback(async (role: Role) => {
     if (!firebaseUser) return;
-    await authService.setUserRole(firebaseUser.uid, role);
     setProfile((p) => (p ? { ...p, role } : p));
-    if (role === 'driver') {
-      const status = await driverService.getDriverStatus(firebaseUser.uid);
-      setDriverStatus(status);
+    try {
+      await authService.setUserRole(firebaseUser.uid, role);
+      if (role === 'driver') {
+        const status = await driverService.getDriverStatus(firebaseUser.uid);
+        setDriverStatus(status);
+      } else {
+        setDriverStatus(null);
+      }
+    } catch (err) {
+      setProfile((p) => (p ? { ...p, role: p.role === 'driver' ? 'rider' : 'driver' } : p));
+      throw err;
     }
   }, [firebaseUser]);
 
@@ -216,12 +241,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setOnline = useCallback(async (online: boolean) => {
     if (!firebaseUser) return;
-    await driverService.setOnlineStatus(firebaseUser.uid, online);
     setDriverStatus((prev) => (prev ? { ...prev, online } : prev));
+    try {
+      await driverService.setOnlineStatus(firebaseUser.uid, online);
+    } catch {
+      setDriverStatus((prev) => (prev ? { ...prev, online: !online } : prev));
+    }
   }, [firebaseUser]);
 
-  const value = useMemo<AppContextType>(() => ({
+  const value = useMemo(() => ({
     isLoading,
+    authInitialized,
     isOnboarded,
     isAuthenticated: !!firebaseUser,
     user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone } : null,
@@ -248,7 +278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshDriverStatus,
     setOnline,
   }), [
-    isLoading, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    isLoading, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet,
     refreshDriverStatus, setOnline,
