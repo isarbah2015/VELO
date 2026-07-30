@@ -124,8 +124,6 @@ export default function HomeScreen() {
     });
   };
 
-  const topPad = insets.top + (isWeb ? 67 : 0);
-
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -136,7 +134,7 @@ export default function HomeScreen() {
       </View>
 
       {/* Top floating: location pill + bell (no greeting) */}
-      <View style={[styles.topBar, { top: topPad + 8 }]}>
+      <View style={[styles.topBar, { top: insets.top + (isWeb ? 14 : 6) }]}>
         <TouchableOpacity style={styles.locPill} activeOpacity={0.85}>
           <Ionicons name="location" size={15} color="#FFD000" />
           <Text style={styles.locPillText} numberOfLines={1}>Accra Mall, East Legon</Text>
@@ -212,7 +210,7 @@ export default function HomeScreen() {
         onRequestClose={handleCloseBooking}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
             {bookingState === 'confirm' && (
               <ConfirmView
                 bike={selectedBike}
@@ -562,10 +560,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#131316',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
-    paddingBottom: 36,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     gap: 0,
-    borderWidth: 1,
+    borderTopWidth: 1,
     borderColor: '#27272A',
   },
   sheetHandle: {

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
-import { Svg, Rect, Circle, Path } from 'react-native-svg';
 import * as Location from 'expo-location';
+import CityMap from './CityMap';
 
 const ACCRA = { latitude: 5.6037, longitude: -0.187 };
 const PICKUP = { latitude: 5.6321, longitude: -0.1499 }; // Accra Mall, East Legon
@@ -30,62 +30,6 @@ if (!IS_EXPO_GO) {
   }
 }
 
-function FallbackMap({ width, height, mode }: { width: number; height: number; mode: 'route' | 'nearby' }) {
-  const bw = width / 5;
-  const bh = height / 8;
-  const rw = 12;
-  return (
-    <View style={{ width, height, overflow: 'hidden', backgroundColor: '#0C0D10' }}>
-      <Svg width={width} height={height}>
-        <Rect fill="#0C0D10" width={width} height={height} />
-        {Array.from({ length: 5 }).map((_, col) =>
-          Array.from({ length: 8 }).map((_, row) => (
-            <Rect
-              key={`b-${col}-${row}`}
-              x={col * bw + rw / 2}
-              y={row * bh + rw / 2}
-              width={bw - rw}
-              height={bh - rw}
-              fill="#14141A"
-              rx={4}
-            />
-          ))
-        )}
-        {Array.from({ length: 9 }).map((_, i) => (
-          <Rect key={`hr-${i}`} x={0} y={i * bh - rw / 2} width={width} height={rw} fill="#1A1B22" />
-        ))}
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Rect key={`vr-${i}`} x={i * bw - rw / 2} y={0} width={rw} height={height} fill="#1A1B22" />
-        ))}
-        {mode === 'route' ? (
-          <>
-            <Path
-              d={`M ${width * 0.25} ${height * 0.68} L ${width * 0.5} ${height * 0.68} L ${width * 0.5} ${height * 0.34} L ${width * 0.75} ${height * 0.34}`}
-              stroke="#4DB8FF"
-              strokeWidth={4}
-              strokeDasharray="2 8"
-              fill="none"
-              strokeLinecap="round"
-            />
-            <Circle cx={width * 0.25} cy={height * 0.68} r={8} fill="#FFD000" />
-            <Circle cx={width * 0.75} cy={height * 0.34} r={9} fill="#EF4444" />
-            <Circle cx={width * 0.75} cy={height * 0.34} r={4} fill="#FFF" />
-          </>
-        ) : (
-          [[0.3, 0.35], [0.7, 0.45], [0.25, 0.62], [0.72, 0.7], [0.5, 0.8]].map(([fx, fy], i) => (
-            <React.Fragment key={i}>
-              <Circle cx={width * fx} cy={height * fy} r={16} fill="#FFD000" opacity={0.15} />
-              <Circle cx={width * fx} cy={height * fy} r={7} fill="#FFD000" />
-            </React.Fragment>
-          ))
-        )}
-        <Circle cx={width * 0.5} cy={height * 0.5} r={22} fill="#4DB8FF" opacity={0.15} />
-        <Circle cx={width * 0.5} cy={height * 0.5} r={8} fill="#4DB8FF" />
-      </Svg>
-    </View>
-  );
-}
-
 // Real Google Maps on native — requires the Google Maps API key in app.json
 // and a dev-client / standalone build (react-native-maps native module).
 export default function LiveMap({ width, height, mode }: { width: number; height: number; mode: 'route' | 'nearby' }) {
@@ -107,9 +51,10 @@ export default function LiveMap({ width, height, mode }: { width: number; height
     })();
   }, []);
 
-  // Expo Go (or any build without the native module): SVG fallback.
+  // Expo Go (or any build without the native module): stylized CityMap
+  // mockup — same look the rider home uses, so both stay consistent.
   if (IS_EXPO_GO || !RNMaps) {
-    return <FallbackMap width={width} height={height} mode={mode} />;
+    return <CityMap width={width} height={height} showRoute={mode === 'route'} />;
   }
 
   const MapView = RNMaps.default;

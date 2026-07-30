@@ -95,7 +95,7 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
       {/* rotating 3D V logo */}
       <View style={styles.center}>
         <Animated.View style={{ transform: [{ perspective: 900 }, { rotateY }] }}>
-          <Image source={require('@/assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+          <Image source={require('@/assets/images/logo-v.png')} style={styles.logo} resizeMode="contain" />
         </Animated.View>
 
         <Animated.View style={{ opacity: wordmark, marginTop: 22, alignItems: 'center' }}>
@@ -133,9 +133,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 132,
-    height: 132,
-    borderRadius: 30,
+    width: 168,
+    height: 112,
   },
   brand: {
     fontSize: 34,

@@ -81,16 +81,14 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const handleSwitchRole = async (next: Role) => {
+  const handleSwitchRole = (next: Role) => {
     if (next === role || switching) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setSwitching(true);
-    try {
-      await switchRole(next);
-      router.replace(next === 'driver' ? '/(driver-tabs)' : '/(tabs)');
-    } finally {
-      setSwitching(false);
-    }
+    // switchRole updates the role in context synchronously (optimistic) and
+    // syncs to Firestore in the background, so navigate immediately instead
+    // of waiting on the network round-trip — the tab set swaps instantly.
+    switchRole(next).catch(() => {});
+    router.replace(next === 'driver' ? '/(driver-tabs)' : '/(tabs)');
   };
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -15,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
-import AnimatedLogo from '@/components/AnimatedLogo';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -70,7 +70,11 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={styles.logoSection}>
-            <AnimatedLogo size={56} />
+            <Image
+              source={require('@/assets/images/logo-v.png')}
+              style={styles.logoMark}
+              resizeMode="contain"
+            />
             <Text style={styles.logoText}>VELO</Text>
             <Text style={styles.tagline}>Ride Safe. Ride Fast.</Text>
           </View>
@@ -133,19 +137,28 @@ export default function LoginScreen() {
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
 
-            {/* CTA */}
-            <TouchableOpacity
-              style={[styles.ctaBtn, isLoading && styles.ctaBtnDisabled]}
-              onPress={handleLogin}
-              disabled={isLoading}
-              activeOpacity={0.85}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#000" />
-              ) : (
-                <Text style={styles.ctaBtnText}>Sign In</Text>
-              )}
-            </TouchableOpacity>
+            {/* Sign In + Create Account — 2x1 grid */}
+            <View style={styles.ctaGrid}>
+              <TouchableOpacity
+                style={[styles.ctaBtn, isLoading && styles.ctaBtnDisabled]}
+                onPress={handleLogin}
+                disabled={isLoading}
+                activeOpacity={0.85}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.ctaBtnText}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.ctaBtnOutline}
+                onPress={() => router.push('/(auth)/signup')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.ctaBtnOutlineText}>Create Account</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Divider */}
             <View style={styles.divider}>
@@ -158,14 +171,6 @@ export default function LoginScreen() {
             <TouchableOpacity style={styles.socialBtn}>
               <Ionicons name="logo-google" size={20} color="#FFFFFF" />
               <Text style={styles.socialBtnText}>Continue with Google</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Footer */}
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Don't have an account?</Text>
-            <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-              <Text style={styles.footerLink}> Create Account</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -189,6 +194,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingTop: 16,
+  },
+  logoMark: {
+    width: 84,
+    height: 56,
+    marginBottom: 4,
   },
   logoText: {
     fontSize: 28,
@@ -284,13 +294,18 @@ const styles = StyleSheet.create({
     color: '#FFD000',
     fontWeight: '500',
   },
+  ctaGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
   ctaBtn: {
+    flex: 1,
     backgroundColor: '#FFD000',
     borderRadius: 14,
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
   },
   ctaBtnDisabled: {
     opacity: 0.7,
@@ -299,6 +314,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#000000',
+  },
+  ctaBtnOutline: {
+    flex: 1,
+    borderRadius: 14,
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#3F3F46',
+    backgroundColor: '#1C1C1F',
+  },
+  ctaBtnOutlineText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   divider: {
     flexDirection: 'row',
