@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  Animated,
   Dimensions,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -10,14 +10,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Svg, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import AnimatedLogo from '@/components/AnimatedLogo';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const SLIDES = [
   {
@@ -25,15 +24,12 @@ const SLIDES = [
     tag: 'Premium Rides',
     title: 'Ride Safe.\nRide Fast.',
     subtitle: "Ghana's #1 bike-hailing app. Get to your destination fast, safely, and affordably.",
-    hasHero: true,
   },
   {
     id: '2',
     tag: 'Transparent',
     title: 'No Surprises.\nKnow Your Fare.',
     subtitle: 'See the full price before you ride. Base ₵5 + ₵2.50/km — no hidden fees, ever.',
-    hasHero: false,
-    icon: 'receipt-outline' as const,
     features: ['Base Fare ₵5.00', '₵2.50 per km', '₵0.50 per min'],
   },
   {
@@ -41,57 +37,9 @@ const SLIDES = [
     tag: 'Pay Your Way',
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
-    hasHero: false,
-    icon: 'wallet-outline' as const,
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
   },
 ];
-
-function BikeHero() {
-  const float = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, { toValue: 1, duration: 2400, useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: 2400, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-
-  const translateY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -14] });
-  const rotate = float.interpolate({ inputRange: [0, 1], outputRange: ['-4deg', '-1deg'] });
-  const glowScale = float.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
-
-  const glowSize = width * 1.3;
-
-  return (
-    <View style={styles.bikeHeroWrap} pointerEvents="none">
-      <Animated.View style={[styles.bikeGlow, { width: glowSize, height: glowSize, transform: [{ scale: glowScale }] }]}>
-        <Svg width={glowSize} height={glowSize}>
-          <Defs>
-            <RadialGradient id="glow" cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor="#FFD000" stopOpacity={0.35} />
-              <Stop offset="55%" stopColor="#FFD000" stopOpacity={0.08} />
-              <Stop offset="100%" stopColor="#FFD000" stopOpacity={0} />
-            </RadialGradient>
-          </Defs>
-          <Circle cx={glowSize / 2} cy={glowSize / 2} r={glowSize / 2} fill="url(#glow)" />
-        </Svg>
-      </Animated.View>
-
-      <Animated.Image
-        source={require('@/assets/images/bike-standard.png')}
-        style={[styles.bikeHeroImage, { transform: [{ translateY }, { rotate }] }]}
-        resizeMode="contain"
-      />
-
-      <View style={styles.bikeReflection} />
-    </View>
-  );
-}
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
@@ -119,46 +67,42 @@ export default function OnboardingScreen() {
 
   const renderSlide = ({ item }: { item: typeof SLIDES[0] }) => (
     <View style={[styles.slide, { width }]}>
-      {item.hasHero ? (
-        <View style={styles.heroContainer}>
-          <BikeHero />
-          <LinearGradient
-            colors={['transparent', '#09090B']}
-            style={styles.heroGradient}
-          />
-        </View>
-      ) : (
-        <View style={styles.illustrationContainer}>
-          <View style={styles.iconCircle}>
-            <Ionicons name={item.icon!} size={64} color="#FFD000" />
-          </View>
-          {item.features && (
-            <View style={styles.featureList}>
-              {item.features.map((f) => (
-                <View key={f} style={styles.featureRow}>
-                  <View style={styles.featureDot} />
-                  <Text style={styles.featureText}>{f}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
-
       <View style={styles.textContent}>
         <View style={styles.tagPill}>
           <Text style={styles.tagText}>{item.tag}</Text>
         </View>
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.subtitle}>{item.subtitle}</Text>
+        {item.features && (
+          <View style={styles.featureList}>
+            {item.features.map((f) => (
+              <View key={f} style={styles.featureRow}>
+                <View style={styles.featureDot} />
+                <Text style={styles.featureText}>{f}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
+      {/* Full-screen atmospheric welcome background */}
+      <Image
+        source={require('@/assets/images/onboarding-hero.png')}
+        style={StyleSheet.absoluteFill}
+        resizeMode="cover"
+      />
+      <LinearGradient
+        colors={['rgba(9,9,11,0.55)', 'rgba(9,9,11,0.35)', 'rgba(9,9,11,0.96)']}
+        locations={[0, 0.35, 0.82]}
+        style={StyleSheet.absoluteFill}
+      />
+
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerLogoRow}>
           <AnimatedLogo size={30} />
           <Text style={styles.logo}>VELO</Text>
@@ -168,7 +112,7 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Slides */}
+      {/* Slides — text sits over the lower third of the photo */}
       <FlatList
         ref={flatListRef}
         data={SLIDES}
@@ -183,20 +127,12 @@ export default function OnboardingScreen() {
 
       {/* Bottom */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-        {/* Dots */}
         <View style={styles.dots}>
           {SLIDES.map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.dot,
-                i === currentIndex && styles.dotActive,
-              ]}
-            />
+            <View key={i} style={[styles.dot, i === currentIndex && styles.dotActive]} />
           ))}
         </View>
 
-        {/* CTA */}
         <TouchableOpacity style={styles.ctaButton} onPress={handleNext} activeOpacity={0.85}>
           <Text style={styles.ctaText}>
             {currentIndex === SLIDES.length - 1 ? 'Get Started' : 'Continue'}
@@ -224,7 +160,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingBottom: 16,
   },
   headerLogoRow: {
     flexDirection: 'row',
@@ -239,70 +175,24 @@ const styles = StyleSheet.create({
   },
   skipText: {
     fontSize: 15,
-    color: '#71717A',
-    fontWeight: '500',
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   flatList: {
     flex: 1,
   },
   slide: {
     flex: 1,
+    justifyContent: 'flex-end',
   },
-  heroContainer: {
-    flex: 1,
-    maxHeight: height * 0.6,
-  },
-  heroGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 140,
-  },
-  bikeHeroWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bikeGlow: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bikeHeroImage: {
-    width: width * 0.92,
-    height: height * 0.42,
-  },
-  bikeReflection: {
-    position: 'absolute',
-    bottom: 36,
-    width: width * 0.5,
-    height: 18,
-    borderRadius: 999,
-    backgroundColor: '#FFD000',
-    opacity: 0.12,
-    transform: [{ scaleX: 1.8 }],
-  },
-  illustrationContainer: {
-    flex: 1,
-    maxHeight: height * 0.45,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 32,
-  },
-  iconCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#1C1C1F',
-    borderWidth: 1,
-    borderColor: '#2A2A2D',
-    alignItems: 'center',
-    justifyContent: 'center',
+  textContent: {
+    paddingHorizontal: 28,
+    gap: 12,
   },
   featureList: {
-    gap: 12,
+    gap: 10,
     alignItems: 'flex-start',
+    marginTop: 4,
   },
   featureRow: {
     flexDirection: 'row',
@@ -316,37 +206,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
   },
   featureText: {
-    fontSize: 17,
+    fontSize: 16,
     color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  textContent: {
-    paddingHorizontal: 28,
-    paddingTop: 28,
-    gap: 12,
+    fontWeight: '600',
   },
   tagPill: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,208,0,0.15)',
+    backgroundColor: 'rgba(255,208,0,0.18)',
     borderRadius: 20,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255,208,0,0.3)',
   },
   tagText: {
     fontSize: 12,
     color: '#FFD000',
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 40,
+    fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 42,
+    lineHeight: 46,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
-    color: '#A1A1AA',
+    color: '#D4D4D8',
     lineHeight: 22,
   },
   footer: {
@@ -363,7 +251,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#27272A',
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   dotActive: {
     width: 24,
@@ -388,6 +276,6 @@ const styles = StyleSheet.create({
   },
   signInLinkText: {
     fontSize: 14,
-    color: '#71717A',
+    color: '#D4D4D8',
   },
 });

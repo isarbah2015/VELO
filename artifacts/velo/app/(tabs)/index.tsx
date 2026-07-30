@@ -44,16 +44,13 @@ const BIKES = [
   {
     id: 'premium',
     name: 'VELO Premium',
-    type: 'Sport Performance',
+    type: 'Premium Bike',
     price: '₵25.00',
     period: 'per hour',
     seats: 1,
     eta: '8 min',
     rating: 4.9,
-    // Reuses the dramatic night hero shot instead of the standard product
-    // cutout — a full atmospheric photo rather than a small icon is what
-    // actually reads as "premium" here, no separate asset needed.
-    photo: require('@/assets/images/onboarding-hero.png'),
+    photo: require('@/assets/images/bike-standard.png'),
   },
 ];
 
@@ -141,65 +138,43 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Header — location + bell, no boxed card */}
         <View style={[styles.header, { paddingTop: topPad + 4 }]}>
-          <View style={styles.locationRow}>
-            <View style={styles.locationInfo}>
-              <Text style={styles.locationLabel}>Current Location</Text>
-              <View style={styles.locationNameRow}>
-                <Ionicons name="location" size={16} color="#FFD000" />
-                <Text style={styles.locationName} numberOfLines={1}>Accra Mall, East Legon</Text>
-              </View>
+          <View style={styles.locationInfo}>
+            <Text style={styles.locationLabel}>Current Location</Text>
+            <View style={styles.locationNameRow}>
+              <Ionicons name="location" size={15} color="#FFD000" />
+              <Text style={styles.locationName} numberOfLines={1}>Accra Mall, East Legon</Text>
             </View>
-            <TouchableOpacity style={styles.notifBtn}>
-              <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
-              <View style={styles.notifDot} />
-            </TouchableOpacity>
           </View>
-
-          {/* Greeting */}
-          <Text style={styles.greeting}>
-            Good morning, {user?.name?.split(' ')[0] ?? 'Rider'} 👋
-          </Text>
+          <TouchableOpacity style={styles.notifBtn}>
+            <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+            <View style={styles.notifDot} />
+          </TouchableOpacity>
         </View>
 
-        {/* Route Input Card */}
-        <View style={styles.routeCard}>
-          <View style={styles.routeRow}>
-            <View style={styles.routeDot} />
-            <View style={styles.routeTextCol}>
-              <Text style={styles.routeFieldLabel}>Pickup Location</Text>
-              <Text style={styles.routeFieldValue} numberOfLines={1}>Accra Mall, East Legon</Text>
-            </View>
-            <TouchableOpacity style={styles.routeGpsBtn}>
-              <Ionicons name="locate-outline" size={18} color="#FFD000" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.routeDivider} />
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, styles.routeDotRed]} />
-            <View style={styles.routeTextCol}>
-              <Text style={styles.routeFieldLabel}>Where to go?</Text>
-              <Text style={styles.routeFieldValue} numberOfLines={1}>{destination}</Text>
-            </View>
-            <TouchableOpacity style={styles.routeGpsBtn}>
-              <Ionicons name="add" size={20} color="#52525B" />
-            </TouchableOpacity>
-          </View>
-        </View>
+        <Text style={styles.greeting}>
+          Good morning, {user?.name?.split(' ')[0] ?? 'Rider'} 👋
+        </Text>
 
-        {/* Live Map */}
+        {/* Full-bleed live map hero with a floating destination bar */}
         <View style={styles.mapContainer}>
-          <LiveMap width={width - 32} height={180} mode="route" />
+          <LiveMap width={width} height={260} mode="route" />
           <LinearGradient
-            colors={['transparent', 'rgba(9,9,11,0.95)']}
+            colors={['transparent', 'rgba(9,9,11,0.9)']}
             style={styles.mapGradientBottom}
+            pointerEvents="none"
           />
-          <View style={styles.mapPinContainer}>
-            <View style={styles.mapPin}>
-              <Ionicons name="location" size={24} color="#FFD000" />
+          <TouchableOpacity style={styles.destBar} activeOpacity={0.85} onPress={handleBookNow}>
+            <View style={styles.destBarIcon}>
+              <Ionicons name="search" size={16} color="#000000" />
             </View>
-          </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.destBarLabel}>Where to?</Text>
+              <Text style={styles.destBarValue} numberOfLines={1}>{destination}</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color="#FFD000" />
+          </TouchableOpacity>
         </View>
 
         {/* Services */}
@@ -245,62 +220,7 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
 
-        {/* Bike Card — Premium gets a full-bleed hero photo treatment,
-            Standard keeps the plain card with a small product cutout */}
-        {selectedBike.id === 'premium' ? (
-          <View style={styles.premiumBikeCard}>
-            <Image source={selectedBike.photo} style={styles.premiumBikePhoto} resizeMode="cover" />
-            <LinearGradient
-              colors={['rgba(9,9,11,0)', 'rgba(9,9,11,0.35)', 'rgba(9,9,11,0.97)']}
-              locations={[0, 0.45, 0.82]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.premiumBadge}>
-              <Ionicons name="sparkles" size={12} color="#000000" />
-              <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-            </View>
-            <View style={styles.premiumBikeContent}>
-              <Text style={styles.bikeName}>{selectedBike.name}</Text>
-              <View style={styles.priceRow}>
-                <Text style={styles.bikePrice}>{selectedBike.price}</Text>
-                <Text style={styles.bikePeriod}>/{selectedBike.period}</Text>
-              </View>
-              <View style={styles.bikeFeatures}>
-                <View style={styles.featurePillDark}>
-                  <Ionicons name="shield-checkmark-outline" size={13} color="#FFFFFF" />
-                  <Text style={styles.featurePillTextLight}>Full Gear</Text>
-                </View>
-                <View style={styles.featurePillDark}>
-                  <Ionicons name="flash-outline" size={13} color="#FFFFFF" />
-                  <Text style={styles.featurePillTextLight}>Sport</Text>
-                </View>
-                <View style={styles.featurePillDark}>
-                  <Ionicons name="time-outline" size={13} color="#FFFFFF" />
-                  <Text style={styles.featurePillTextLight}>{selectedBike.eta}</Text>
-                </View>
-              </View>
-              <View style={styles.premiumBikeBottom}>
-                <View style={styles.bikeActions}>
-                  <TouchableOpacity
-                    style={styles.bikeActionBtnDark}
-                    onPress={() => {
-                      setLiked((v) => !v);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                  >
-                    <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? '#EF4444' : '#FFFFFF'} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.bikeActionBtnDark}>
-                    <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
-                  <Text style={styles.bookNowText}>Book Now</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        ) : (
+        {/* Bike Card — 3D product cutout for every tier */}
         <View style={styles.bikeCard}>
           <View style={styles.bikeCardTop}>
             <View style={styles.bikeInfo}>
@@ -354,7 +274,6 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        )}
 
         {/* SOS Banner */}
         <TouchableOpacity style={styles.sosBanner} activeOpacity={0.8}>
@@ -528,14 +447,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#09090B',
   },
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    gap: 8,
-  },
-  locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 4,
   },
   locationInfo: {
     gap: 2,
@@ -580,25 +496,12 @@ const styles = StyleSheet.create({
     borderColor: '#09090B',
   },
   greeting: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: '#FFFFFF',
-  },
-  routeCard: {
-    marginHorizontal: 20,
-    backgroundColor: '#1C1C1F',
-    borderRadius: 16,
-    padding: 16,
-    gap: 0,
-    borderWidth: 1,
-    borderColor: '#27272A',
-    marginBottom: 12,
-  },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 14,
   },
   routeDot: {
     width: 12,
@@ -609,57 +512,59 @@ const styles = StyleSheet.create({
   routeDotRed: {
     backgroundColor: '#EF4444',
   },
-  routeTextCol: {
-    flex: 1,
-    gap: 2,
+  mapContainer: {
+    height: 260,
+    overflow: 'hidden',
+    marginBottom: 20,
+    position: 'relative',
   },
-  routeFieldLabel: {
-    fontSize: 11,
-    color: '#52525B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: '600',
+  destBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(28,28,31,0.96)',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
   },
-  routeFieldValue: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  routeGpsBtn: {
+  destBarIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#252528',
+    backgroundColor: '#FFD000',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  routeDivider: {
-    height: 1,
-    backgroundColor: '#27272A',
-    marginLeft: 24,
+  destBarLabel: {
+    fontSize: 11,
+    color: '#71717A',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
-  mapContainer: {
-    marginHorizontal: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
-    position: 'relative',
+  destBarValue: {
+    fontSize: 15,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    marginTop: 1,
   },
   mapGradientBottom: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 60,
-  },
-  mapPinContainer: {
-    position: 'absolute',
-    top: '40%',
-    left: '60%',
-    transform: [{ translateX: -12 }, { translateY: -24 }],
-  },
-  mapPin: {
-    alignItems: 'center',
+    height: 110,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -795,73 +700,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
-  },
-  premiumBikeCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 24,
-    height: 360,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-  },
-  premiumBikePhoto: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-  },
-  premiumBadge: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#FFD000',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  premiumBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#000000',
-    letterSpacing: 0.5,
-  },
-  premiumBikeContent: {
-    padding: 20,
-    gap: 10,
-  },
-  featurePillDark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  featurePillTextLight: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  premiumBikeBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  bikeActionBtnDark: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   sosBanner: {
     marginHorizontal: 16,

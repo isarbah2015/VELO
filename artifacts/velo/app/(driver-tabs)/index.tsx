@@ -1,33 +1,39 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Platform,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import EarningsChart from '@/components/EarningsChart';
+import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { getDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide, recordCompletedRide } from '@/services/driver';
 
-export default function DriverDashboardScreen() {
+const { width, height } = Dimensions.get('window');
+
+// Driver home = a clean live map to receive rides (Bolt/Uber-Driver style).
+// The map is the whole screen; a slim status strip floats at the top and a
+// single action panel floats at the bottom. Detailed stats and the weekly
+// chart live on the Earnings tab, so nothing is lost by keeping this clean.
+export default function DriverHomeScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { user, driverStatus, setOnline, refreshDriverStatus } = useApp();
   const [requests, setRequests] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
   const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+
+  const online = driverStatus?.online ?? false;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,6 +46,11 @@ export default function DriverDashboardScreen() {
   }, [refreshDriverStatus]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const toggleOnline = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setOnline(!online);
+  };
 
   const respond = async (ride: Ride, accepted: boolean) => {
     if (!user) return;
@@ -54,103 +65,92 @@ export default function DriverDashboardScreen() {
     }
   };
 
-  const weekly = driverStatus?.weeklyEarnings ?? [0, 0, 0, 0, 0, 0, 0];
-  const todayIdx = new Date().getDay();
+  const incoming = online ? requests[0] : undefined;
 
   return (
-    <View style={[styles.container, { paddingTop: topPad }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Driver Dashboard</Text>
-          <Text style={styles.headerSub}>Welcome back, {user?.name?.split(' ')[0] ?? 'Driver'}</Text>
+      {/* Full-screen map */}
+      <View style={StyleSheet.absoluteFill}>
+        <LiveMap width={width} height={height} mode="nearby" />
+      </View>
+      <View style={styles.mapDim} pointerEvents="none" />
+
+      {/* Top status strip — no boxed card, floats over the map */}
+      <View style={[styles.topStrip, { paddingTop: topPad + 8 }]}>
+        <View style={styles.greetChip}>
+          <View style={[styles.statusDot, { backgroundColor: online ? '#22C55E' : '#71717A' }]} />
+          <Text style={styles.greetText} numberOfLines={1}>
+            {user?.name?.split(' ')[0] ?? 'Driver'}
+          </Text>
+        </View>
+        <View style={styles.metricsChip}>
+          <Ionicons name="wallet-outline" size={14} color="#FFD000" />
+          <Text style={styles.metricText}>₵{(driverStatus?.todayEarnings ?? 0).toFixed(0)}</Text>
+          <View style={styles.metricDivider} />
+          <Ionicons name="star" size={13} color="#FFD000" />
+          <Text style={styles.metricText}>{(driverStatus?.rating ?? 5).toFixed(1)}</Text>
         </View>
       </View>
 
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingBottom: tabBarH + 16 }}>
-        {/* Online toggle */}
-        <View style={styles.statusCard}>
-          <View>
-            <Text style={styles.statusLabel}>{driverStatus?.online ? "You're online" : "You're offline"}</Text>
-            <Text style={styles.statusSub}>{driverStatus?.online ? 'Ready to accept rides' : 'Go online to start earning'}</Text>
-          </View>
-          <Switch
-            value={driverStatus?.online ?? false}
-            onValueChange={(v) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setOnline(v); }}
-            trackColor={{ false: '#3F3F46', true: '#22C55E' }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
-
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>₵{(driverStatus?.todayEarnings ?? 0).toFixed(2)}</Text>
-            <Text style={styles.statLabel}>Today</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{driverStatus?.ridesToday ?? 0}</Text>
-            <Text style={styles.statLabel}>Rides</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Ionicons name="star" size={14} color="#FFD000" />
-              <Text style={styles.statValue}>{(driverStatus?.rating ?? 5).toFixed(1)}</Text>
+      {/* Bottom action panel */}
+      <View style={[styles.bottomWrap, { bottom: tabBarH + 8 }]}>
+        {incoming ? (
+          <View style={styles.requestCard}>
+            <View style={styles.requestHeader}>
+              <View style={styles.requestAvatar}>
+                <Ionicons name="person" size={20} color="#FFD000" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.requestName} numberOfLines={1}>{incoming.riderName}</Text>
+                <Text style={styles.requestType}>{incoming.type} Bike</Text>
+              </View>
+              <Text style={styles.requestFare}>₵{incoming.price.toFixed(2)}</Text>
             </View>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-        </View>
-
-        {/* Requests */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Ride Requests</Text>
-          {requests.length > 0 && (
-            <View style={styles.countBadge}><Text style={styles.countText}>{requests.length}</Text></View>
-          )}
-        </View>
-
-        {loading ? (
-          <ActivityIndicator color="#FFD000" style={{ marginTop: 20 }} />
-        ) : requests.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="file-tray-outline" size={28} color="#3F3F46" />
-            <Text style={styles.emptyText}>No pending requests</Text>
+            <View style={styles.requestRouteRow}>
+              <View style={styles.dotYellow} />
+              <Text style={styles.requestRouteText} numberOfLines={1}>{incoming.from}</Text>
+            </View>
+            <View style={styles.requestRouteRow}>
+              <View style={styles.dotRed} />
+              <Text style={styles.requestRouteText} numberOfLines={1}>{incoming.to}</Text>
+            </View>
+            <View style={styles.requestActions}>
+              <TouchableOpacity style={styles.declineBtn} onPress={() => respond(incoming, false)}>
+                <Text style={styles.declineText}>Decline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.acceptBtn} onPress={() => respond(incoming, true)}>
+                <Text style={styles.acceptText}>Accept · ₵{incoming.price.toFixed(2)}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
-          requests.slice(0, 2).map((r) => (
-            <View key={r.id} style={styles.requestCard}>
-              <View style={styles.requestTop}>
-                <Text style={styles.requestName} numberOfLines={1}>{r.riderName}</Text>
-                <Text style={styles.requestFare}>₵{r.price.toFixed(2)}</Text>
-              </View>
-              <Text style={styles.requestRoute} numberOfLines={1}>{r.from} → {r.to}</Text>
-              <View style={styles.requestActions}>
-                <TouchableOpacity style={styles.declineBtn} onPress={() => respond(r, false)}>
-                  <Text style={styles.declineText}>Decline</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.acceptBtn} onPress={() => respond(r, true)}>
-                  <Text style={styles.acceptText}>Accept</Text>
-                </TouchableOpacity>
-              </View>
+          <View style={styles.statusPanel}>
+            <View style={styles.statusPanelText}>
+              <Text style={styles.statusTitle}>{online ? "You're online" : "You're offline"}</Text>
+              <Text style={styles.statusSub}>
+                {online
+                  ? (loading ? 'Checking for requests…' : 'Waiting for ride requests nearby')
+                  : 'Go online to start receiving rides'}
+              </Text>
             </View>
-          ))
-        )}
-        {requests.length > 2 && (
-          <TouchableOpacity style={styles.viewAllBtn} onPress={() => router.push('/(driver-tabs)/requests')}>
-            <Text style={styles.viewAllText}>View all {requests.length} requests</Text>
-          </TouchableOpacity>
+            {online && loading && <ActivityIndicator color="#FFD000" />}
+          </View>
         )}
 
-        {/* Weekly chart */}
-        <View style={styles.chartCard}>
-          <Text style={styles.sectionTitle}>Weekly Earnings</Text>
-          <View style={{ marginTop: 12 }}>
-            <EarningsChart values={weekly} highlightIndex={todayIdx} />
-          </View>
-        </View>
+        {!incoming && (
+          <TouchableOpacity
+            style={[styles.onlineBtn, online ? styles.onlineBtnOff : styles.onlineBtnOn]}
+            onPress={toggleOnline}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="power" size={18} color={online ? '#FFFFFF' : '#000000'} />
+            <Text style={[styles.onlineBtnText, online && styles.onlineBtnTextOff]}>
+              {online ? 'Go Offline' : 'Go Online'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -158,56 +158,113 @@ export default function DriverDashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#09090B' },
-  header: { paddingHorizontal: 20, paddingVertical: 16, gap: 2 },
-  headerTitle: { fontSize: 26, fontWeight: '800', color: '#FFFFFF' },
-  headerSub: { fontSize: 13, color: '#71717A' },
-  statusCard: {
-    backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16, marginBottom: 12,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1, borderColor: '#27272A',
+  mapDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(9,9,11,0.25)' },
+  topStrip: {
+    position: 'absolute',
+    top: 0,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
   },
-  statusLabel: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-  statusSub: { fontSize: 12, color: '#71717A', marginTop: 2 },
-  statsRow: {
-    flexDirection: 'row', backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16,
-    marginBottom: 20, borderWidth: 1, borderColor: '#27272A',
+  greetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(28,28,31,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
   },
-  statBox: { flex: 1, alignItems: 'center', gap: 4 },
-  statValue: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
-  statLabel: { fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: 0.4 },
-  statDivider: { width: 1, backgroundColor: '#27272A' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  countBadge: { backgroundColor: '#EF4444', borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
-  countText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
-  emptyCard: {
-    backgroundColor: '#1C1C1F', borderRadius: 16, padding: 24, alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: '#27272A', marginBottom: 12,
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  greetText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  metricsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(28,28,31,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
   },
-  emptyText: { fontSize: 13, color: '#71717A' },
+  metricText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  metricDivider: { width: 1, height: 14, backgroundColor: '#3F3F46', marginHorizontal: 3 },
+  bottomWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    gap: 12,
+  },
+  statusPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(28,28,31,0.96)',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+  },
+  statusPanelText: { flex: 1, gap: 3 },
+  statusTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  statusSub: { color: '#71717A', fontSize: 13 },
+  onlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 56,
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  onlineBtnOn: { backgroundColor: '#FFD000' },
+  onlineBtnOff: { backgroundColor: '#27272A', borderWidth: 1, borderColor: '#3F3F46' },
+  onlineBtnText: { fontSize: 16, fontWeight: '800', color: '#000000' },
+  onlineBtnTextOff: { color: '#FFFFFF' },
   requestCard: {
-    backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16, marginBottom: 10,
-    borderWidth: 1, borderColor: '#27272A', gap: 8,
+    backgroundColor: 'rgba(28,28,31,0.98)',
+    borderRadius: 22,
+    padding: 18,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#FFD00040',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 20,
   },
-  requestTop: { flexDirection: 'row', justifyContent: 'space-between' },
-  requestName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', flexShrink: 1 },
-  requestFare: { fontSize: 15, fontWeight: '800', color: '#FFD000' },
-  requestRoute: { fontSize: 12, color: '#71717A' },
+  requestHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  requestAvatar: {
+    width: 42, height: 42, borderRadius: 21, backgroundColor: '#252528',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  requestName: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  requestType: { color: '#71717A', fontSize: 12, marginTop: 1 },
+  requestFare: { color: '#FFD000', fontSize: 18, fontWeight: '800' },
+  requestRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dotYellow: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFD000' },
+  dotRed: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
+  requestRouteText: { color: '#FFFFFF', fontSize: 13, fontWeight: '500', flex: 1 },
   requestActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   declineBtn: {
-    flex: 1, borderWidth: 1, borderColor: '#EF4444', borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: 10,
+    flex: 1, borderWidth: 1, borderColor: '#EF4444', borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 14,
   },
-  declineText: { color: '#EF4444', fontSize: 13, fontWeight: '700' },
+  declineText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
   acceptBtn: {
-    flex: 1.4, backgroundColor: '#22C55E', borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: 10,
+    flex: 1.8, backgroundColor: '#22C55E', borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 14,
   },
-  acceptText: { color: '#000000', fontSize: 13, fontWeight: '700' },
-  viewAllBtn: { alignItems: 'center', paddingVertical: 10, marginBottom: 8 },
-  viewAllText: { color: '#FFD000', fontSize: 13, fontWeight: '600' },
-  chartCard: {
-    backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16, marginTop: 8,
-    borderWidth: 1, borderColor: '#27272A',
-  },
+  acceptText: { color: '#000000', fontSize: 14, fontWeight: '800' },
 });
