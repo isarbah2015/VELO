@@ -1,20 +1,49 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { User as FirebaseUser } from 'firebase/auth';
+import * as authService from '@/services/auth';
+import * as rideService from '@/services/rides';
+import * as paymentService from '@/services/payments';
+import * as driverService from '@/services/driver';
+import type { DriverStatus } from '@/services/driver';
+
+export type Role = 'rider' | 'driver';
 
 export interface Ride {
   id: string;
+  riderId: string;
+  riderName: string;
+  driverId: string | null;
+  driverName: string | null;
   from: string;
   to: string;
   type: 'Standard' | 'Premium' | 'Group';
   price: number;
   date: string;
-  status: 'completed' | 'cancelled';
+  status: 'requested' | 'accepted' | 'completed' | 'cancelled';
   durationMin: number;
-  driverName: string;
   driverRating: number;
+  paymentMethod?: string;
+}
+
+export interface PaymentMethod {
+  id: string;
+  type: 'momo' | 'vodafone' | 'airtel' | 'card';
+  name: string;
+  number: string;
+  isDefault: boolean;
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: 'topup' | 'deduction';
+  amount: number;
+  description: string;
+  date: string;
 }
 
 export interface User {
+  uid: string;
   name: string;
   phone: string;
 }
@@ -24,115 +53,208 @@ interface AppContextType {
   isOnboarded: boolean;
   isAuthenticated: boolean;
   user: User | null;
+  role: Role;
   rides: Ride[];
+  paymentMethods: PaymentMethod[];
+  walletBalance: number;
+  walletTransactions: WalletTransaction[];
+  driverStatus: DriverStatus | null;
+
   completeOnboarding: () => Promise<void>;
-  login: (name: string, phone: string) => Promise<void>;
+  login: (phone: string, password: string) => Promise<void>;
+  signup: (name: string, phone: string, password: string, role?: Role) => Promise<void>;
   logout: () => Promise<void>;
-  addRide: (ride: Omit<Ride, 'id' | 'date'>) => Promise<void>;
+  switchRole: (role: Role) => Promise<void>;
+
+  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number }) => Promise<string>;
+  refreshRides: () => Promise<void>;
+  cancelRide: (rideId: string) => Promise<void>;
+  completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string }) => Promise<void>;
+
+  addPaymentMethod: (method: Omit<PaymentMethod, 'id'>) => Promise<void>;
+  removePaymentMethod: (id: string) => Promise<void>;
+  setDefaultPayment: (id: string) => Promise<void>;
+  getDefaultPayment: () => PaymentMethod | null;
+  topUpWallet: (amount: number, methodId: string) => Promise<void>;
+
+  refreshDriverStatus: () => Promise<void>;
+  setOnline: (online: boolean) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
 
-const SAMPLE_RIDES: Ride[] = [
-  {
-    id: 'r1',
-    from: 'Accra Mall, East Legon',
-    to: 'Osu Oxford Street',
-    type: 'Standard',
-    price: 42,
-    date: new Date(Date.now() - 86400000).toISOString(),
-    status: 'completed',
-    durationMin: 18,
-    driverName: 'Kwame A.',
-    driverRating: 4.9,
-  },
-  {
-    id: 'r2',
-    from: 'Kotoka Airport',
-    to: 'Cantonments Road',
-    type: 'Premium',
-    price: 65,
-    date: new Date(Date.now() - 86400000 * 3).toISOString(),
-    status: 'completed',
-    durationMin: 25,
-    driverName: 'Yaw B.',
-    driverRating: 4.8,
-  },
-];
+const ONBOARDING_KEY = 'velo_onboarded';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isOnboarded, setIsOnboarded] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [profile, setProfile] = useState<authService.UserProfile | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
+  const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [onboarded, userData, ridesData] = await Promise.all([
-          AsyncStorage.getItem('velo_onboarded'),
-          AsyncStorage.getItem('velo_user'),
-          AsyncStorage.getItem('velo_rides'),
-        ]);
-        setIsOnboarded(!!onboarded);
-        if (userData) setUser(JSON.parse(userData));
-        if (ridesData) {
-          setRides(JSON.parse(ridesData));
-        } else {
-          setRides(SAMPLE_RIDES);
-          await AsyncStorage.setItem('velo_rides', JSON.stringify(SAMPLE_RIDES));
-        }
-      } catch (_) {
-        setRides(SAMPLE_RIDES);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
+    AsyncStorage.getItem(ONBOARDING_KEY).then((v) => { if (v) setIsOnboarded(true); });
   }, []);
 
+  const loadUserData = useCallback(async (uid: string, role: Role) => {
+    const [rideHistory, methods] = await Promise.all([
+      rideService.getRideHistory(uid, 'rider'),
+      paymentService.getPaymentMethods(uid),
+    ]);
+    setRides(rideHistory);
+    setPaymentMethods(methods);
+    paymentService.getTransactions(uid).then(setWalletTransactions);
+    if (role === 'driver') {
+      driverService.getDriverStatus(uid).then(setDriverStatus);
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = authService.onAuthChange(async (fbUser) => {
+      setFirebaseUser(fbUser);
+      if (fbUser) {
+        const p = await authService.getUserProfile(fbUser.uid);
+        setProfile(p);
+        if (p) await loadUserData(fbUser.uid, p.role);
+      } else {
+        setProfile(null);
+        setRides([]);
+        setPaymentMethods([]);
+        setWalletTransactions([]);
+        setDriverStatus(null);
+      }
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, [loadUserData]);
+
   const completeOnboarding = useCallback(async () => {
-    await AsyncStorage.setItem('velo_onboarded', '1');
+    await AsyncStorage.setItem(ONBOARDING_KEY, '1');
     setIsOnboarded(true);
   }, []);
 
-  const login = useCallback(async (name: string, phone: string) => {
-    const u: User = { name, phone };
-    await AsyncStorage.setItem('velo_user', JSON.stringify(u));
-    setUser(u);
+  const login = useCallback(async (phone: string, password: string) => {
+    await authService.login(phone, password);
+  }, []);
+
+  const signup = useCallback(async (name: string, phone: string, password: string, role: Role = 'rider') => {
+    await authService.register(name, phone, password, role);
   }, []);
 
   const logout = useCallback(async () => {
-    await AsyncStorage.removeItem('velo_user');
-    setUser(null);
+    await authService.logout();
   }, []);
 
-  const addRide = useCallback(async (ride: Omit<Ride, 'id' | 'date'>) => {
-    const newRide: Ride = {
-      ...ride,
-      id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
-      date: new Date().toISOString(),
-    };
-    const updated = [newRide, ...rides];
-    setRides(updated);
-    await AsyncStorage.setItem('velo_rides', JSON.stringify(updated));
-  }, [rides]);
+  const switchRole = useCallback(async (role: Role) => {
+    if (!firebaseUser) return;
+    await authService.setUserRole(firebaseUser.uid, role);
+    setProfile((p) => (p ? { ...p, role } : p));
+    if (role === 'driver') {
+      const status = await driverService.getDriverStatus(firebaseUser.uid);
+      setDriverStatus(status);
+    }
+  }, [firebaseUser]);
 
-  return (
-    <AppContext.Provider value={{
-      isLoading,
-      isOnboarded,
-      isAuthenticated: !!user,
-      user,
-      rides,
-      completeOnboarding,
-      login,
-      logout,
-      addRide,
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
+  const refreshRides = useCallback(async () => {
+    if (!firebaseUser) return;
+    setRides(await rideService.getRideHistory(firebaseUser.uid, 'rider'));
+  }, [firebaseUser]);
+
+  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number }) => {
+    if (!firebaseUser || !profile) throw new Error('Not signed in');
+    return rideService.createRide({ ...input, riderId: firebaseUser.uid, riderName: profile.name });
+  }, [firebaseUser, profile]);
+
+  const cancelRide = useCallback(async (rideId: string) => {
+    await rideService.updateRideStatus(rideId, 'cancelled');
+    await refreshRides();
+  }, [refreshRides]);
+
+  const completeRide = useCallback(async (rideId: string, extra: { durationMin: number; paymentMethod?: string }) => {
+    await rideService.updateRideStatus(rideId, 'completed', extra);
+    await refreshRides();
+  }, [refreshRides]);
+
+  const addPaymentMethod = useCallback(async (method: Omit<PaymentMethod, 'id'>) => {
+    if (!firebaseUser) return;
+    await paymentService.addPaymentMethod(firebaseUser.uid, method, paymentMethods);
+    setPaymentMethods(await paymentService.getPaymentMethods(firebaseUser.uid));
+  }, [firebaseUser, paymentMethods]);
+
+  const removePaymentMethod = useCallback(async (id: string) => {
+    if (!firebaseUser) return;
+    await paymentService.removePaymentMethodDoc(firebaseUser.uid, id);
+    setPaymentMethods((prev) => prev.filter((m) => m.id !== id));
+  }, [firebaseUser]);
+
+  const setDefaultPayment = useCallback(async (id: string) => {
+    if (!firebaseUser) return;
+    await paymentService.setDefaultPaymentMethod(firebaseUser.uid, paymentMethods, id);
+    setPaymentMethods((prev) => prev.map((m) => ({ ...m, isDefault: m.id === id })));
+  }, [firebaseUser, paymentMethods]);
+
+  const getDefaultPayment = useCallback((): PaymentMethod | null => {
+    return paymentMethods.find((m) => m.isDefault) ?? paymentMethods[0] ?? null;
+  }, [paymentMethods]);
+
+  const topUpWallet = useCallback(async (amount: number, methodId: string) => {
+    if (!firebaseUser) return;
+    const method = paymentMethods.find((m) => m.id === methodId);
+    await paymentService.topUpWallet(firebaseUser.uid, amount, `Top up via ${method?.name ?? 'Mobile Money'}`);
+    const p = await authService.getUserProfile(firebaseUser.uid);
+    setProfile(p);
+    setWalletTransactions(await paymentService.getTransactions(firebaseUser.uid));
+  }, [firebaseUser, paymentMethods]);
+
+  const refreshDriverStatus = useCallback(async () => {
+    if (!firebaseUser) return;
+    setDriverStatus(await driverService.getDriverStatus(firebaseUser.uid));
+  }, [firebaseUser]);
+
+  const setOnline = useCallback(async (online: boolean) => {
+    if (!firebaseUser) return;
+    await driverService.setOnlineStatus(firebaseUser.uid, online);
+    setDriverStatus((prev) => (prev ? { ...prev, online } : prev));
+  }, [firebaseUser]);
+
+  const value = useMemo<AppContextType>(() => ({
+    isLoading,
+    isOnboarded,
+    isAuthenticated: !!firebaseUser,
+    user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone } : null,
+    role: profile?.role ?? 'rider',
+    rides,
+    paymentMethods,
+    walletBalance: profile?.walletBalance ?? 0,
+    walletTransactions,
+    driverStatus,
+    completeOnboarding,
+    login,
+    signup,
+    logout,
+    switchRole,
+    requestRide,
+    refreshRides,
+    cancelRide,
+    completeRide,
+    addPaymentMethod,
+    removePaymentMethod,
+    setDefaultPayment,
+    getDefaultPayment,
+    topUpWallet,
+    refreshDriverStatus,
+    setOnline,
+  }), [
+    isLoading, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
+    addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet,
+    refreshDriverStatus, setOnline,
+  ]);
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export const useApp = () => useContext(AppContext);

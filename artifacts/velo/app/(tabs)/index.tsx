@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -15,8 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { Svg, Rect, Line, Circle, Path } from 'react-native-svg';
-import { useApp } from '@/context/AppContext';
+import LiveMap from '@/components/LiveMap';
+import { useApp, type Ride } from '@/context/AppContext';
+import { watchRide } from '@/services/rides';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 const { width } = Dimensions.get('window');
@@ -54,15 +56,21 @@ type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, addRide } = useApp();
+  const { user, requestRide, cancelRide } = useApp();
+  const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
   const [destination, setDestination] = useState('Osu Oxford Street');
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [liked, setLiked] = useState(false);
+  const [activeRideId, setActiveRideId] = useState<string | null>(null);
+  const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
+  const unwatchRef = React.useRef<(() => void) | null>(null);
 
   const isWeb = Platform.OS === 'web';
-  const tabBarHeight = isWeb ? 100 : Math.max(insets.bottom, 8) + 80;
+  const tabBarHeight = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+
+  useEffect(() => () => unwatchRef.current?.(), []);
 
   const handleBookNow = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -72,25 +80,49 @@ export default function HomeScreen() {
   const handleConfirmRide = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setBookingState('searching');
-    await new Promise((r) => setTimeout(r, 2200));
-    setBookingState('found');
+    const rideId = await requestRide({
+      from: 'Accra Mall, East Legon',
+      to: destination,
+      type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
+      price: 42,
+    });
+    setActiveRideId(rideId);
+    unwatchRef.current = watchRide(rideId, (ride) => {
+      if (ride?.driverId) {
+        setMatchedRide(ride);
+        setBookingState('found');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    });
   };
 
-  const handleCloseBooking = async () => {
-    if (bookingState === 'found') {
-      await addRide({
+  const handleCloseBooking = () => {
+    if (bookingState === 'searching' && activeRideId) {
+      cancelRide(activeRideId);
+    }
+    unwatchRef.current?.();
+    unwatchRef.current = null;
+    setActiveRideId(null);
+    setMatchedRide(null);
+    setBookingState('idle');
+  };
+
+  const handleTrackRide = () => {
+    unwatchRef.current?.();
+    unwatchRef.current = null;
+    setBookingState('idle');
+    router.push({
+      pathname: '/tracking',
+      params: {
+        rideId: activeRideId ?? '',
         from: 'Accra Mall, East Legon',
         to: destination,
         type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
-        price: parseInt(selectedBike.price.replace('₵', '')),
-        status: 'completed',
-        durationMin: 20,
-        driverName: 'Kofi M.',
-        driverRating: 4.8,
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    setBookingState('idle');
+        price: '42',
+        driverName: matchedRide?.driverName ?? 'Your VELO driver',
+        driverRating: '4.8',
+      },
+    });
   };
 
   const topPad = insets.top + (isWeb ? 67 : 0);
@@ -105,7 +137,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+        <View style={[styles.header, { paddingTop: topPad + 4 }]}>
           <View style={styles.locationRow}>
             <View style={styles.locationInfo}>
               <Text style={styles.locationLabel}>Current Location</Text>
@@ -151,9 +183,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Abstract Map */}
+        {/* Live Map */}
         <View style={styles.mapContainer}>
-          <AbstractMap width={width - 32} height={180} />
+          <LiveMap width={width - 32} height={180} mode="route" />
           <LinearGradient
             colors={['transparent', 'rgba(9,9,11,0.95)']}
             style={styles.mapGradientBottom}
@@ -294,53 +326,13 @@ export default function HomeScreen() {
               />
             )}
             {bookingState === 'searching' && <SearchingView />}
-            {bookingState === 'found' && <FoundView onClose={handleCloseBooking} />}
+            {bookingState === 'found' && (
+              <FoundView driverName={matchedRide?.driverName ?? 'Your VELO driver'} onClose={handleCloseBooking} onTrackRide={handleTrackRide} />
+            )}
           </View>
         </View>
       </Modal>
     </View>
-  );
-}
-
-function AbstractMap({ width, height }: { width: number; height: number }) {
-  return (
-    <Svg width={width} height={height}>
-      <Rect fill="#0F0F14" width={width} height={height} rx={16} />
-      {/* City blocks */}
-      {[0, 1, 2, 3].map((col) =>
-        [0, 1].map((row) => (
-          <Rect
-            key={`${col}-${row}`}
-            x={col * (width / 4) + 4}
-            y={row * (height / 2) + 4}
-            width={width / 4 - 12}
-            height={height / 2 - 12}
-            fill="#17171E"
-            rx={6}
-          />
-        ))
-      )}
-      {/* Horizontal roads */}
-      <Rect x={0} y={height / 2 - 4} width={width} height={8} fill="#1A1A24" />
-      {/* Vertical roads */}
-      {[1, 2, 3].map((i) => (
-        <Rect key={i} x={(width / 4) * i - 4} y={0} width={8} height={height} fill="#1A1A24" />
-      ))}
-      {/* Route line */}
-      <Path
-        d={`M ${width * 0.2} ${height * 0.7} Q ${width * 0.45} ${height * 0.3} ${width * 0.75} ${height * 0.4}`}
-        stroke="#FFD000"
-        strokeWidth={3}
-        strokeDasharray="8,5"
-        fill="none"
-        strokeLinecap="round"
-      />
-      {/* Start dot */}
-      <Circle cx={width * 0.2} cy={height * 0.7} r={6} fill="#FFD000" />
-      {/* End dot */}
-      <Circle cx={width * 0.75} cy={height * 0.4} r={8} fill="#EF4444" />
-      <Circle cx={width * 0.75} cy={height * 0.4} r={4} fill="#FFFFFF" />
-    </Svg>
   );
 }
 
@@ -412,7 +404,7 @@ function SearchingView() {
   );
 }
 
-function FoundView({ onClose }: { onClose: () => void }) {
+function FoundView({ driverName, onClose, onTrackRide }: { driverName: string; onClose: () => void; onTrackRide: () => void }) {
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.sheetHandle} />
@@ -422,7 +414,7 @@ function FoundView({ onClose }: { onClose: () => void }) {
         </View>
         <View>
           <Text style={styles.sheetTitle}>Driver Found!</Text>
-          <Text style={styles.sheetSubtitle}>Kofi M. is on his way</Text>
+          <Text style={styles.sheetSubtitle}>{driverName} is on his way</Text>
         </View>
       </View>
 
@@ -459,8 +451,11 @@ function FoundView({ onClose }: { onClose: () => void }) {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.bookNowBtn} onPress={onClose} activeOpacity={0.85}>
-        <Text style={styles.bookNowText}>Done</Text>
+      <TouchableOpacity style={styles.bookNowBtn} onPress={onTrackRide} activeOpacity={0.85}>
+        <Text style={styles.bookNowText}>Track My Ride</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+        <Text style={styles.cancelBtnText}>Skip Tracking</Text>
       </TouchableOpacity>
     </View>
   );

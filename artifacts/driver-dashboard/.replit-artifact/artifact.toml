@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/driver/"
+title = "VELO Driver Dashboard"
+version = "1.0.0"
+id = "artifacts/driver-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/driver/" ]
+localPort = 24556
+
+[services.development]
+run = "pnpm --filter @workspace/driver-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/driver-dashboard", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/driver-dashboard/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24556"
+BASE_PATH = "/driver/"

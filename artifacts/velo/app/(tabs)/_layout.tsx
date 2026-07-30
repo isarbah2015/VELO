@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Animated,
   Platform,
   StyleSheet,
   Text,
@@ -31,15 +32,24 @@ const TAB_DEFS = [
 function VeloTabBar({ state, navigation }: { state: any; navigation: any }) {
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
+  // Sits closer to the true screen edge than before (was crowding content
+  // above it with almost no clearance) — combined with the extra bottom
+  // padding each tab screen now reserves, this is what stops the bar from
+  // visually sitting on top of the last card.
+  const restingBottom = isWeb ? 18 : Math.max(insets.bottom, 8);
+
+  const floatIn = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(floatIn, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 6 }).start();
+  }, []);
+
+  const translateY = floatIn.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
 
   return (
-    <View
+    <Animated.View
       style={[
         styles.tabBarWrapper,
-        {
-          bottom: isWeb ? 34 : Math.max(insets.bottom, 8) + 8,
-          paddingBottom: 0,
-        },
+        { bottom: restingBottom, opacity: floatIn, transform: [{ translateY }] },
       ]}
     >
       <View style={styles.tabBar}>
@@ -72,7 +82,7 @@ function VeloTabBar({ state, navigation }: { state: any; navigation: any }) {
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -135,10 +145,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 24,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.55,
+    shadowRadius: 28,
+    elevation: 28,
     borderWidth: 1,
     borderColor: '#2A2A2D',
   },

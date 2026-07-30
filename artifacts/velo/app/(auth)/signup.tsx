@@ -14,18 +14,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useApp } from '@/context/AppContext';
+import { useApp, type Role } from '@/context/AppContext';
+import AnimatedLogo from '@/components/AnimatedLogo';
 
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { login } = useApp();
+  const { signup } = useApp();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState<Role>('rider');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -52,10 +54,16 @@ export default function SignupScreen() {
       return;
     }
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 900));
-    await login(name.trim(), phone.trim());
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace('/(tabs)');
+    try {
+      await signup(name.trim(), phone.trim(), password, role);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/');
+    } catch (e: any) {
+      setError(e?.code === 'auth/email-already-in-use' ? 'This phone number is already registered' : 'Something went wrong — try again');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -76,13 +84,40 @@ export default function SignupScreen() {
 
           {/* Header */}
           <View style={styles.headerSection}>
-            <Text style={styles.logo}>VELO</Text>
+            <View style={styles.logoRow}>
+              <AnimatedLogo size={26} />
+              <Text style={styles.logo}>VELO</Text>
+            </View>
             <Text style={styles.title}>Create Account</Text>
             <Text style={styles.subtitle}>Join thousands of riders in Ghana</Text>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
+            {/* Role */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>I want to</Text>
+              <View style={styles.roleRow}>
+                {(['rider', 'driver'] as Role[]).map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[styles.roleChip, role === r && styles.roleChipActive]}
+                    onPress={() => { setRole(r); Haptics.selectionAsync(); }}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={r === 'rider' ? 'bicycle-outline' : 'briefcase-outline'}
+                      size={18}
+                      color={role === r ? '#000000' : '#A1A1AA'}
+                    />
+                    <Text style={[styles.roleChipText, role === r && styles.roleChipTextActive]}>
+                      {r === 'rider' ? 'Ride' : 'Drive'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
             {/* Full Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Full Name</Text>
@@ -220,6 +255,12 @@ const styles = StyleSheet.create({
   headerSection: {
     gap: 6,
   },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
   logo: {
     fontSize: 20,
     fontWeight: '900',
@@ -245,6 +286,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#A1A1AA',
     fontWeight: '500',
+  },
+  roleRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  roleChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderRadius: 12,
+    paddingVertical: 14,
+  },
+  roleChipActive: {
+    backgroundColor: '#FFD000',
+    borderColor: '#FFD000',
+  },
+  roleChipText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#A1A1AA',
+  },
+  roleChipTextActive: {
+    color: '#000000',
   },
   inputRow: {
     flexDirection: 'row',

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 
 export default function IndexScreen() {
-  const { isLoading, isOnboarded, isAuthenticated } = useApp();
+  const { isLoading, isOnboarded, isAuthenticated, role } = useApp();
   const router = useRouter();
 
   useEffect(() => {
@@ -14,9 +14,9 @@ export default function IndexScreen() {
     } else if (!isAuthenticated) {
       router.replace('/(auth)/login');
     } else {
-      router.replace('/(tabs)');
+      router.replace(role === 'driver' ? '/(driver-tabs)' : '/(tabs)');
     }
-  }, [isLoading, isOnboarded, isAuthenticated]);
+  }, [isLoading, isOnboarded, isAuthenticated, role]);
 
   return (
     <View style={styles.container}>

@@ -27,6 +27,13 @@ function RootLayoutNav() {
       <Stack.Screen name="onboarding" options={{ headerShown: false, animation: 'fade' }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="tracking" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="payment-methods" options={{ headerShown: false }} />
+      <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+      <Stack.Screen name="wallet" options={{ headerShown: false }} />
+      <Stack.Screen name="payment-confirmation" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="(driver-tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="driver-history" options={{ headerShown: false }} />
     </Stack>
   );
 }

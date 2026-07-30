@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import AnimatedLogo from '@/components/AnimatedLogo';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -40,11 +41,20 @@ export default function LoginScreen() {
       return;
     }
     setIsLoading(true);
-    // Simulate auth delay
-    await new Promise((r) => setTimeout(r, 800));
-    await login('VELO Rider', phone);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace('/(tabs)');
+    try {
+      await login(phone, password);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/');
+    } catch (e: any) {
+      setError(
+        ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(e?.code)
+          ? 'Incorrect phone number or password'
+          : 'Something went wrong — try again'
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -60,9 +70,7 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={styles.logoSection}>
-            <View style={styles.logoMark}>
-              <Text style={styles.logoV}>V</Text>
-            </View>
+            <AnimatedLogo size={56} />
             <Text style={styles.logoText}>VELO</Text>
             <Text style={styles.tagline}>Ride Safe. Ride Fast.</Text>
           </View>
@@ -181,20 +189,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingTop: 16,
-  },
-  logoMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#FFD000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  logoV: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#000000',
   },
   logoText: {
     fontSize: 28,

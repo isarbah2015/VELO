@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Every rider/driver account: profile, role, wallet balance.
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == userId;
+
+      match /paymentMethods/{methodId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /transactions/{txId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // Per-driver online status + earnings, separate from the profile doc so
+    // rides can read a driver's live status without touching their wallet.
+    match /drivers/{driverId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == driverId;
+    }
+
+    // A ride is visible to its rider and, once assigned, its driver. Riders
+    // create rides; either party updates status (accept/decline/cancel/
+    // complete) but only within their own role's fields.
+    match /rides/{rideId} {
+      allow read: if signedIn() && (resource.data.riderId == request.auth.uid || resource.data.driverId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.riderId == request.auth.uid;
+      allow update: if signedIn() && (resource.data.riderId == request.auth.uid || resource.data.driverId == request.auth.uid || (resource.data.driverId == null && request.resource.data.driverId == request.auth.uid));
+    }
+  }
+}

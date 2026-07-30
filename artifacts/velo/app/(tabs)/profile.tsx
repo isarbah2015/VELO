@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
   Platform,
@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useApp } from '@/context/AppContext';
+import { useApp, type Role } from '@/context/AppContext';
 
 interface MenuItem {
   id: string;
@@ -52,16 +52,20 @@ const MENU_SECTIONS: { title: string; items: MenuItem[] }[] = [
   },
 ];
 
+const ROLE_LABEL: Record<Role, string> = { rider: 'Rider', driver: 'Driver' };
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, rides, logout } = useApp();
+  const { user, role, rides, driverStatus, logout, switchRole } = useApp();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
-  const tabBarH = isWeb ? 100 : Math.max(insets.bottom, 8) + 80;
+  const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+  const [switching, setSwitching] = useState(false);
 
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const totalSpent = rides.reduce((sum, r) => (r.status === 'completed' ? sum + r.price : sum), 0);
+  const isDriver = role === 'driver';
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -75,6 +79,18 @@ export default function ProfileScreen() {
         },
       },
     ]);
+  };
+
+  const handleSwitchRole = async (next: Role) => {
+    if (next === role || switching) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSwitching(true);
+    try {
+      await switchRole(next);
+      router.replace(next === 'driver' ? '/(driver-tabs)' : '/(tabs)');
+    } finally {
+      setSwitching(false);
+    }
   };
 
   return (
@@ -107,7 +123,7 @@ export default function ProfileScreen() {
             <Text style={styles.userPhone} numberOfLines={1}>+233 {user?.phone ?? ''}</Text>
             <View style={styles.veloTag}>
               <Ionicons name="shield-checkmark" size={12} color="#FFD000" />
-              <Text style={styles.veloTagText}>Verified Rider</Text>
+              <Text style={styles.veloTagText}>Verified {ROLE_LABEL[role]}</Text>
             </View>
           </View>
           <TouchableOpacity style={styles.editBtn}>
@@ -117,24 +133,68 @@ export default function ProfileScreen() {
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statNum}>{completedRides}</Text>
-            <Text style={styles.statLbl}>Rides</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={styles.statNum}>4.8</Text>
-            <Text style={styles.statLbl}>Rating</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={[styles.statNum, { color: '#FFD000' }]}>₵{totalSpent}</Text>
-            <Text style={styles.statLbl}>Spent</Text>
+          {isDriver ? (
+            <>
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>{driverStatus?.ridesToday ?? 0}</Text>
+                <Text style={styles.statLbl}>Rides Today</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>{(driverStatus?.rating ?? 5).toFixed(1)}</Text>
+                <Text style={styles.statLbl}>Rating</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={[styles.statNum, { color: '#FFD000' }]}>₵{(driverStatus?.todayEarnings ?? 0).toFixed(0)}</Text>
+                <Text style={styles.statLbl}>Earned</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>{completedRides}</Text>
+                <Text style={styles.statLbl}>Rides</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>4.8</Text>
+                <Text style={styles.statLbl}>Rating</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={[styles.statNum, { color: '#FFD000' }]}>₵{totalSpent}</Text>
+                <Text style={styles.statLbl}>Spent</Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* Role switcher */}
+        <View style={styles.roleSwitchCard}>
+          <Text style={styles.roleSwitchTitle}>Account Mode</Text>
+          <View style={styles.roleSwitchRow}>
+            {(['rider', 'driver'] as Role[]).map((r) => (
+              <TouchableOpacity
+                key={r}
+                style={[styles.roleSwitchChip, role === r && styles.roleSwitchChipActive]}
+                onPress={() => handleSwitchRole(r)}
+                disabled={switching}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={r === 'rider' ? 'bicycle-outline' : 'briefcase-outline'}
+                  size={16}
+                  color={role === r ? '#000000' : '#A1A1AA'}
+                />
+                <Text style={[styles.roleSwitchText, role === r && styles.roleSwitchTextActive]}>{ROLE_LABEL[r]}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
         {/* Wallet Card */}
-        <TouchableOpacity style={styles.walletCard} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.walletCard} activeOpacity={0.85} onPress={() => router.push('/wallet')}>
           <View style={styles.walletLeft}>
             <Ionicons name="wallet" size={24} color="#FFD000" />
             <View>
@@ -157,7 +217,11 @@ export default function ProfileScreen() {
                 <View key={item.id}>
                   <TouchableOpacity
                     style={styles.menuItem}
-                    onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (item.id === 'payment') router.push('/payment-methods');
+                      if (item.id === 'history') router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
+                    }}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.menuIconWrap, item.iconColor && { borderColor: item.iconColor + '30' }]}>
@@ -317,6 +381,51 @@ const styles = StyleSheet.create({
     width: 1,
     backgroundColor: '#27272A',
     alignSelf: 'stretch',
+  },
+  roleSwitchCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    gap: 10,
+  },
+  roleSwitchTitle: {
+    fontSize: 12,
+    color: '#52525B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  roleSwitchRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  roleSwitchChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#252528',
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  roleSwitchChipActive: {
+    backgroundColor: '#FFD000',
+    borderColor: '#FFD000',
+  },
+  roleSwitchText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#A1A1AA',
+  },
+  roleSwitchTextActive: {
+    color: '#000000',
   },
   walletCard: {
     marginHorizontal: 16,

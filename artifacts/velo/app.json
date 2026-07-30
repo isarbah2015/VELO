@@ -15,13 +15,21 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.velo.ridehailing"
+      "bundleIdentifier": "com.velo.ridehailing",
+      "config": {
+        "googleMapsApiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
+      }
     },
     "android": {
       "package": "com.velo.ridehailing",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#09090B"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
+        }
       }
     },
     "web": {
