@@ -20,20 +20,20 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const [mapMode, setMapMode] = useState<'route' | 'nearby'>('route');
   const isWeb = Platform.OS === 'web';
-  const topPad = insets.top + (isWeb ? 67 : 0);
-  const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
-  // The info card below is now a compact floating pill (~104px) instead of
-  // a tall bottom sheet, so the map only needs to give up a sliver at the
-  // bottom rather than nearly a third of the screen.
-  const cardFootprint = 104;
-  const mapH = height - topPad - tabBarH - cardFootprint;
+  const headerTop = insets.top + (isWeb ? 14 : 6);
+  const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Floating Header — plain text over the map, no card box */}
-      <View style={[styles.header, { top: topPad + 8 }]}>
+      {/* Map fills the entire screen — edge to edge, no dark bands */}
+      <View style={StyleSheet.absoluteFill}>
+        <LiveMap width={width} height={height} mode={mapMode} />
+      </View>
+
+      {/* Floating header — plain text + toggle over the map, no card box */}
+      <View style={[styles.header, { top: headerTop }]}>
         <View style={styles.headerLeft}>
           <Ionicons name="map" size={20} color="#FFD000" />
           <Text style={styles.headerTitle}>Live Map</Text>
@@ -64,13 +64,8 @@ export default function MapScreen() {
         </View>
       </View>
 
-      {/* Full Screen Map — now gets the bulk of the viewport */}
-      <View style={[styles.mapArea, { marginTop: topPad + 64, height: mapH }]}>
-        <LiveMap width={width} height={mapH} mode={mapMode} />
-      </View>
-
       {/* Compact premium info card, floating above the tab bar */}
-      <View style={[styles.cardWrap, { bottom: tabBarH - 8 }]}>
+      <View style={[styles.cardWrap, { bottom: tabBarH + 4 }]}>
         {mapMode === 'route' ? <RouteInfo /> : <NearbyInfo />}
       </View>
     </View>
@@ -189,12 +184,6 @@ const styles = StyleSheet.create({
   },
   modeBtnTextActive: {
     color: '#000000',
-  },
-  mapArea: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    overflow: 'hidden',
   },
   cardWrap: {
     position: 'absolute',

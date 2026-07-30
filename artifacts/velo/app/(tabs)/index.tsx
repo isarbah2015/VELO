@@ -70,7 +70,7 @@ export default function HomeScreen() {
   const unwatchRef = React.useRef<(() => void) | null>(null);
 
   const isWeb = Platform.OS === 'web';
-  const tabBarHeight = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+  const tabBarHeight = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   useEffect(() => () => unwatchRef.current?.(), []);
 
@@ -138,43 +138,49 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header — location + bell, no boxed card */}
-        <View style={[styles.header, { paddingTop: topPad + 4 }]}>
-          <View style={styles.locationInfo}>
-            <Text style={styles.locationLabel}>Current Location</Text>
-            <View style={styles.locationNameRow}>
-              <Ionicons name="location" size={15} color="#FFD000" />
-              <Text style={styles.locationName} numberOfLines={1}>Accra Mall, East Legon</Text>
-            </View>
-          </View>
+        {/* Tiny greeting top-left + bell — no big hero */}
+        <View style={[styles.topRow, { paddingTop: topPad + 6 }]}>
+          <Text style={styles.greetingSmall} numberOfLines={1}>
+            Good morning, {user?.name?.split(' ')[0] ?? 'Rider'} 👋
+          </Text>
           <TouchableOpacity style={styles.notifBtn}>
-            <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+            <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
             <View style={styles.notifDot} />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.greeting}>
-          Good morning, {user?.name?.split(' ')[0] ?? 'Rider'} 👋
-        </Text>
-
-        {/* Full-bleed live map hero with a floating destination bar */}
-        <View style={styles.mapContainer}>
-          <LiveMap width={width} height={260} mode="route" />
+        {/* One premium card: current location + where to */}
+        <TouchableOpacity style={styles.tripCard} activeOpacity={0.9} onPress={handleBookNow}>
           <LinearGradient
-            colors={['transparent', 'rgba(9,9,11,0.9)']}
-            style={styles.mapGradientBottom}
-            pointerEvents="none"
+            colors={['rgba(255,208,0,0.08)', 'rgba(28,28,31,0)']}
+            style={StyleSheet.absoluteFill}
           />
-          <TouchableOpacity style={styles.destBar} activeOpacity={0.85} onPress={handleBookNow}>
-            <View style={styles.destBarIcon}>
-              <Ionicons name="search" size={16} color="#000000" />
-            </View>
+          <View style={styles.tripRow}>
+            <View style={styles.routeDot} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.destBarLabel}>Where to?</Text>
-              <Text style={styles.destBarValue} numberOfLines={1}>{destination}</Text>
+              <Text style={styles.tripLabel}>Current Location</Text>
+              <Text style={styles.tripValue} numberOfLines={1}>Accra Mall, East Legon</Text>
             </View>
-            <Ionicons name="arrow-forward" size={18} color="#FFD000" />
-          </TouchableOpacity>
+            <View style={styles.tripLocateBtn}>
+              <Ionicons name="locate" size={16} color="#FFD000" />
+            </View>
+          </View>
+          <View style={styles.tripConnector} />
+          <View style={styles.tripRow}>
+            <View style={[styles.routeDot, styles.routeDotRed]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tripLabel}>Where to?</Text>
+              <Text style={styles.tripValue} numberOfLines={1}>{destination}</Text>
+            </View>
+            <View style={styles.tripGoBtn}>
+              <Ionicons name="arrow-forward" size={16} color="#000000" />
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Full-bleed live map */}
+        <View style={styles.mapContainer}>
+          <LiveMap width={width} height={300} mode="route" />
         </View>
 
         {/* Services */}
@@ -446,38 +452,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#09090B',
   },
-  header: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingBottom: 4,
+    paddingBottom: 12,
   },
-  locationInfo: {
-    gap: 2,
-  },
-  locationLabel: {
-    fontSize: 11,
-    color: '#52525B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: '600',
-  },
-  locationNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  locationName: {
+  greetingSmall: {
+    flex: 1,
     fontSize: 15,
+    fontWeight: '700',
     color: '#FFFFFF',
-    fontWeight: '600',
-    maxWidth: 220,
   },
   notifBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#1C1C1F',
     alignItems: 'center',
     justifyContent: 'center',
@@ -486,8 +477,8 @@ const styles = StyleSheet.create({
   },
   notifDot: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 9,
+    right: 9,
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -495,13 +486,56 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#09090B',
   },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '800',
+  tripCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+    overflow: 'hidden',
+  },
+  tripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  tripLabel: {
+    fontSize: 11,
+    color: '#71717A',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  tripValue: {
+    fontSize: 15,
     color: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    paddingBottom: 14,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  tripConnector: {
+    width: 1.5,
+    height: 16,
+    backgroundColor: '#3F3F46',
+    marginLeft: 5,
+    marginVertical: 4,
+  },
+  tripLocateBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#252528',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tripGoBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFD000',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   routeDot: {
     width: 12,
@@ -513,58 +547,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   mapContainer: {
-    height: 260,
+    height: 300,
     overflow: 'hidden',
     marginBottom: 20,
-    position: 'relative',
-  },
-  destBar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: 'rgba(28,28,31,0.96)',
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2D',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  destBarIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFD000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  destBarLabel: {
-    fontSize: 11,
-    color: '#71717A',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  destBarValue: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontWeight: '700',
-    marginTop: 1,
-  },
-  mapGradientBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 110,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -668,8 +653,9 @@ const styles = StyleSheet.create({
     color: '#A1A1AA',
   },
   bikeImage: {
-    width: 130,
-    height: 90,
+    width: 175,
+    height: 130,
+    marginRight: -8,
   },
   bikeCardBottom: {
     flexDirection: 'row',

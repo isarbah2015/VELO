@@ -79,7 +79,7 @@ export default function RidesScreen() {
   const [filter, setFilter] = useState<Filter>('All');
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
-  const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+  const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   const filtered = rides.filter((r) => {
     if (filter === 'All') return true;

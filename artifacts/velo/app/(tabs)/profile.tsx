@@ -60,7 +60,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
-  const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+  const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
   const [switching, setSwitching] = useState(false);
 
   const completedRides = rides.filter((r) => r.status === 'completed').length;

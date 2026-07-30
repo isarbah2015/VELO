@@ -31,7 +31,7 @@ export default function DriverHomeScreen() {
   const [loading, setLoading] = useState(true);
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
-  const tabBarH = isWeb ? 120 : Math.max(insets.bottom, 8) + 96;
+  const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   const online = driverStatus?.online ?? false;
 
