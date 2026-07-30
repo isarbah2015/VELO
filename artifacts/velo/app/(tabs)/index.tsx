@@ -39,16 +39,21 @@ const BIKES = [
     seats: 1,
     eta: '5 min',
     rating: 4.8,
+    photo: require('@/assets/images/bike-standard.png'),
   },
   {
     id: 'premium',
     name: 'VELO Premium',
-    type: 'Premium Bike',
+    type: 'Sport Performance',
     price: '₵25.00',
     period: 'per hour',
     seats: 1,
     eta: '8 min',
     rating: 4.9,
+    // Reuses the dramatic night hero shot instead of the standard product
+    // cutout — a full atmospheric photo rather than a small icon is what
+    // actually reads as "premium" here, no separate asset needed.
+    photo: require('@/assets/images/onboarding-hero.png'),
   },
 ];
 
@@ -240,7 +245,62 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
 
-        {/* Bike Card */}
+        {/* Bike Card — Premium gets a full-bleed hero photo treatment,
+            Standard keeps the plain card with a small product cutout */}
+        {selectedBike.id === 'premium' ? (
+          <View style={styles.premiumBikeCard}>
+            <Image source={selectedBike.photo} style={styles.premiumBikePhoto} resizeMode="cover" />
+            <LinearGradient
+              colors={['rgba(9,9,11,0)', 'rgba(9,9,11,0.35)', 'rgba(9,9,11,0.97)']}
+              locations={[0, 0.45, 0.82]}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.premiumBadge}>
+              <Ionicons name="sparkles" size={12} color="#000000" />
+              <Text style={styles.premiumBadgeText}>PREMIUM</Text>
+            </View>
+            <View style={styles.premiumBikeContent}>
+              <Text style={styles.bikeName}>{selectedBike.name}</Text>
+              <View style={styles.priceRow}>
+                <Text style={styles.bikePrice}>{selectedBike.price}</Text>
+                <Text style={styles.bikePeriod}>/{selectedBike.period}</Text>
+              </View>
+              <View style={styles.bikeFeatures}>
+                <View style={styles.featurePillDark}>
+                  <Ionicons name="shield-checkmark-outline" size={13} color="#FFFFFF" />
+                  <Text style={styles.featurePillTextLight}>Full Gear</Text>
+                </View>
+                <View style={styles.featurePillDark}>
+                  <Ionicons name="flash-outline" size={13} color="#FFFFFF" />
+                  <Text style={styles.featurePillTextLight}>Sport</Text>
+                </View>
+                <View style={styles.featurePillDark}>
+                  <Ionicons name="time-outline" size={13} color="#FFFFFF" />
+                  <Text style={styles.featurePillTextLight}>{selectedBike.eta}</Text>
+                </View>
+              </View>
+              <View style={styles.premiumBikeBottom}>
+                <View style={styles.bikeActions}>
+                  <TouchableOpacity
+                    style={styles.bikeActionBtnDark}
+                    onPress={() => {
+                      setLiked((v) => !v);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                  >
+                    <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? '#EF4444' : '#FFFFFF'} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.bikeActionBtnDark}>
+                    <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
+                  <Text style={styles.bookNowText}>Book Now</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : (
         <View style={styles.bikeCard}>
           <View style={styles.bikeCardTop}>
             <View style={styles.bikeInfo}>
@@ -265,7 +325,7 @@ export default function HomeScreen() {
               </View>
             </View>
             <Image
-              source={require('@/assets/images/bike-standard.png')}
+              source={selectedBike.photo}
               style={styles.bikeImage}
               resizeMode="contain"
             />
@@ -294,6 +354,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        )}
 
         {/* SOS Banner */}
         <TouchableOpacity style={styles.sosBanner} activeOpacity={0.8}>
@@ -734,6 +795,73 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
+  },
+  premiumBikeCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 24,
+    height: 360,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  premiumBikePhoto: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  premiumBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFD000',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  premiumBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#000000',
+    letterSpacing: 0.5,
+  },
+  premiumBikeContent: {
+    padding: 20,
+    gap: 10,
+  },
+  featurePillDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  featurePillTextLight: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  premiumBikeBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  bikeActionBtnDark: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sosBanner: {
     marginHorizontal: 16,

@@ -32,37 +32,35 @@ export default function MapScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Floating Header */}
+      {/* Floating Header — plain text over the map, no card box */}
       <View style={[styles.header, { top: topPad + 8 }]}>
-        <View style={styles.headerCard}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="map" size={18} color="#FFD000" />
-            <Text style={styles.headerTitle}>Live Map</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={[styles.modeBtn, mapMode === 'route' && styles.modeBtnActive]}
-              onPress={() => {
-                setMapMode('route');
-                Haptics.selectionAsync();
-              }}
-            >
-              <Text style={[styles.modeBtnText, mapMode === 'route' && styles.modeBtnTextActive]}>
-                Route
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeBtn, mapMode === 'nearby' && styles.modeBtnActive]}
-              onPress={() => {
-                setMapMode('nearby');
-                Haptics.selectionAsync();
-              }}
-            >
-              <Text style={[styles.modeBtnText, mapMode === 'nearby' && styles.modeBtnTextActive]}>
-                Nearby
-              </Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.headerLeft}>
+          <Ionicons name="map" size={20} color="#FFD000" />
+          <Text style={styles.headerTitle}>Live Map</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={[styles.modeBtn, mapMode === 'route' && styles.modeBtnActive]}
+            onPress={() => {
+              setMapMode('route');
+              Haptics.selectionAsync();
+            }}
+          >
+            <Text style={[styles.modeBtnText, mapMode === 'route' && styles.modeBtnTextActive]}>
+              Route
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeBtn, mapMode === 'nearby' && styles.modeBtnActive]}
+            onPress={() => {
+              setMapMode('nearby');
+              Haptics.selectionAsync();
+            }}
+          >
+            <Text style={[styles.modeBtnText, mapMode === 'nearby' && styles.modeBtnTextActive]}>
+              Nearby
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -147,20 +145,12 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 20,
+    right: 20,
     zIndex: 10,
-  },
-  headerCard: {
-    backgroundColor: 'rgba(19,19,22,0.95)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#27272A',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -168,16 +158,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   headerRight: {
     flexDirection: 'row',
-    gap: 6,
-    backgroundColor: '#1C1C1F',
+    gap: 4,
+    backgroundColor: 'rgba(19,19,22,0.85)',
     borderRadius: 20,
     padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   modeBtn: {
     paddingHorizontal: 14,
