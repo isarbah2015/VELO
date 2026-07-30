@@ -4,7 +4,6 @@ import {
   Image,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,16 +11,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import LiveMap from '@/components/LiveMap';
+import CityMap from '@/components/CityMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchRide } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const SERVICES = [
   { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵2.50/km' },
@@ -50,7 +48,7 @@ const BIKES = [
     seats: 1,
     eta: '8 min',
     rating: 4.9,
-    photo: require('@/assets/images/bike-standard.png'),
+    photo: require('@/assets/images/bike-premium.png'),
   },
 ];
 
@@ -64,7 +62,6 @@ export default function HomeScreen() {
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
   const [destination, setDestination] = useState('Osu Oxford Street');
   const [bookingState, setBookingState] = useState<BookingState>('idle');
-  const [liked, setLiked] = useState(false);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
@@ -133,166 +130,79 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Tiny greeting top-left + bell — no big hero */}
-        <View style={[styles.topRow, { paddingTop: topPad + 6 }]}>
-          <Text style={styles.greetingSmall} numberOfLines={1}>
-            Good morning, {user?.name?.split(' ')[0] ?? 'Rider'} 👋
-          </Text>
-          <TouchableOpacity style={styles.notifBtn}>
-            <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
-            <View style={styles.notifDot} />
-          </TouchableOpacity>
-        </View>
+      {/* Full-page stylized city map background */}
+      <View style={StyleSheet.absoluteFill}>
+        <CityMap width={width} height={height} showRoute />
+      </View>
 
-        {/* One premium card: current location + where to */}
-        <TouchableOpacity style={styles.tripCard} activeOpacity={0.9} onPress={handleBookNow}>
-          <LinearGradient
-            colors={['rgba(255,208,0,0.08)', 'rgba(28,28,31,0)']}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.tripRow}>
-            <View style={styles.routeDot} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.tripLabel}>Current Location</Text>
-              <Text style={styles.tripValue} numberOfLines={1}>Accra Mall, East Legon</Text>
-            </View>
-            <View style={styles.tripLocateBtn}>
-              <Ionicons name="locate" size={16} color="#FFD000" />
-            </View>
-          </View>
-          <View style={styles.tripConnector} />
-          <View style={styles.tripRow}>
-            <View style={[styles.routeDot, styles.routeDotRed]} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.tripLabel}>Where to?</Text>
-              <Text style={styles.tripValue} numberOfLines={1}>{destination}</Text>
-            </View>
-            <View style={styles.tripGoBtn}>
-              <Ionicons name="arrow-forward" size={16} color="#000000" />
-            </View>
-          </View>
+      {/* Top floating: location pill + bell (no greeting) */}
+      <View style={[styles.topBar, { top: topPad + 8 }]}>
+        <TouchableOpacity style={styles.locPill} activeOpacity={0.85}>
+          <Ionicons name="location" size={15} color="#FFD000" />
+          <Text style={styles.locPillText} numberOfLines={1}>Accra Mall, East Legon</Text>
+          <Ionicons name="chevron-down" size={15} color="#71717A" />
         </TouchableOpacity>
+        <TouchableOpacity style={styles.bell}>
+          <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
+          <View style={styles.bellDot} />
+        </TouchableOpacity>
+      </View>
 
-        {/* Full-bleed live map */}
-        <View style={styles.mapContainer}>
-          <LiveMap width={width} height={300} mode="route" />
-        </View>
+      {/* Bottom sheet — search, ride types, selected bike */}
+      <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
+        <View style={styles.sheetHandle} />
 
-        {/* Services */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Ride Type</Text>
-          <TouchableOpacity>
-            <Text style={styles.seeAll}>See all</Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.servicesScroll}
-        >
-          {SERVICES.map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[
-                styles.serviceChip,
-                selectedService === s.id && styles.serviceChipActive,
-              ]}
-              onPress={() => {
-                Haptics.selectionAsync();
-                setSelectedService(s.id);
-                setSelectedBike(BIKES.find((b) => b.id === s.id) ?? BIKES[0]);
-              }}
-            >
-              <Ionicons
-                name={s.icon}
-                size={16}
-                color={selectedService === s.id ? '#000' : '#A1A1AA'}
-              />
-              <Text
-                style={[
-                  styles.serviceChipText,
-                  selectedService === s.id && styles.serviceChipTextActive,
-                ]}
-              >
-                {s.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Bike Card — 3D product cutout for every tier */}
-        <View style={styles.bikeCard}>
-          <View style={styles.bikeCardTop}>
-            <View style={styles.bikeInfo}>
-              <Text style={styles.bikeName}>{selectedBike.name}</Text>
-              <View style={styles.priceRow}>
-                <Text style={styles.bikePrice}>{selectedBike.price}</Text>
-                <Text style={styles.bikePeriod}>/{selectedBike.period}</Text>
-              </View>
-              <View style={styles.bikeFeatures}>
-                <View style={styles.featurePill}>
-                  <Ionicons name="shield-checkmark-outline" size={13} color="#A1A1AA" />
-                  <Text style={styles.featurePillText}>Helmet</Text>
-                </View>
-                <View style={styles.featurePill}>
-                  <Ionicons name="person-outline" size={13} color="#A1A1AA" />
-                  <Text style={styles.featurePillText}>{selectedBike.seats} Seat</Text>
-                </View>
-                <View style={styles.featurePill}>
-                  <Ionicons name="time-outline" size={13} color="#A1A1AA" />
-                  <Text style={styles.featurePillText}>{selectedBike.eta}</Text>
-                </View>
-              </View>
-            </View>
-            <Image
-              source={selectedBike.photo}
-              style={styles.bikeImage}
-              resizeMode="contain"
-            />
+        <TouchableOpacity style={styles.searchBar} activeOpacity={0.85} onPress={handleBookNow}>
+          <View style={styles.searchIcon}>
+            <Ionicons name="search" size={16} color="#000000" />
           </View>
-          <View style={styles.bikeCardBottom}>
-            <View style={styles.bikeActions}>
-              <TouchableOpacity
-                style={styles.bikeActionBtn}
-                onPress={() => {
-                  setLiked((v) => !v);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Ionicons
-                  name={liked ? 'heart' : 'heart-outline'}
-                  size={22}
-                  color={liked ? '#EF4444' : '#71717A'}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.bikeActionBtn}>
-                <Ionicons name="share-social-outline" size={22} color="#71717A" />
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
-              <Text style={styles.bookNowText}>Book Now</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* SOS Banner */}
-        <TouchableOpacity style={styles.sosBanner} activeOpacity={0.8}>
-          <View style={styles.sosBannerLeft}>
-            <Ionicons name="alert-circle" size={22} color="#EF4444" />
-            <View>
-              <Text style={styles.sosBannerTitle}>Emergency SOS</Text>
-              <Text style={styles.sosBannerSub}>One tap to alert contacts & services</Text>
-            </View>
-          </View>
+          <Text style={styles.searchText} numberOfLines={1}>{destination}</Text>
           <Ionicons name="chevron-forward" size={18} color="#52525B" />
         </TouchableOpacity>
-      </ScrollView>
+
+        <View style={styles.chipsRow}>
+          {SERVICES.map((s) => {
+            const active = selectedService === s.id;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setSelectedService(s.id);
+                  setSelectedBike(BIKES.find((b) => b.id === s.id) ?? BIKES[0]);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{s.label}</Text>
+                <Text style={[styles.chipPrice, active && styles.chipPriceActive]}>{s.price}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.bikeRow}>
+          <View style={styles.bikeMeta}>
+            <Text style={styles.bikeName}>{selectedBike.name}</Text>
+            <View style={styles.bikeStats}>
+              <Ionicons name="time-outline" size={13} color="#A1A1AA" />
+              <Text style={styles.bikeStatText}>{selectedBike.eta}</Text>
+              <Ionicons name="star" size={13} color="#FFD000" style={{ marginLeft: 8 }} />
+              <Text style={styles.bikeStatText}>{selectedBike.rating}</Text>
+            </View>
+            <View style={styles.priceRow}>
+              <Text style={styles.bikePrice}>{selectedBike.price}</Text>
+              <Text style={styles.bikePeriod}> /hr</Text>
+            </View>
+          </View>
+          <Image source={selectedBike.photo} style={styles.bikeImg} resizeMode="contain" />
+        </View>
+
+        <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
+          <Ionicons name="bicycle" size={18} color="#000000" />
+          <Text style={styles.bookNowText}>Book {selectedBike.name}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Booking Modal */}
       <Modal
@@ -452,90 +362,172 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#09090B',
   },
-  topRow: {
+  topBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+    gap: 10,
   },
-  greetingSmall: {
+  locPill: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(28,28,31,0.96)',
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
   },
-  notifBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1C1C1F',
+  locPillText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  bell: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(28,28,31,0.96)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#27272A',
+    borderColor: '#2A2A2D',
   },
-  notifDot: {
+  bellDot: {
     position: 'absolute',
-    top: 9,
-    right: 9,
+    top: 11,
+    right: 11,
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: '#EF4444',
     borderWidth: 1,
-    borderColor: '#09090B',
+    borderColor: '#131316',
   },
-  tripCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 20,
-    padding: 16,
-    backgroundColor: '#1C1C1F',
-    borderWidth: 1,
-    borderColor: '#2A2A2D',
-    overflow: 'hidden',
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#131316',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    gap: 14,
+    borderTopWidth: 1,
+    borderColor: '#27272A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 24,
   },
-  tripRow: {
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
   },
-  tripLabel: {
-    fontSize: 11,
-    color: '#71717A',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  tripValue: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontWeight: '700',
-    marginTop: 1,
-  },
-  tripConnector: {
-    width: 1.5,
-    height: 16,
-    backgroundColor: '#3F3F46',
-    marginLeft: 5,
-    marginVertical: 4,
-  },
-  tripLocateBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#252528',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tripGoBtn: {
+  searchIcon: {
     width: 34,
     height: 34,
     borderRadius: 17,
     backgroundColor: '#FFD000',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  searchText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  chip: {
+    flex: 1,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    gap: 2,
+    borderWidth: 1,
+    borderColor: '#27272A',
+  },
+  chipActive: {
+    backgroundColor: '#FFD000',
+    borderColor: '#FFD000',
+  },
+  chipLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  chipLabelActive: {
+    color: '#000000',
+  },
+  chipPrice: {
+    fontSize: 11,
+    color: '#71717A',
+    fontWeight: '600',
+  },
+  chipPriceActive: {
+    color: 'rgba(0,0,0,0.65)',
+  },
+  bikeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bikeMeta: {
+    flex: 1,
+    gap: 5,
+  },
+  bikeName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  bikeStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  bikeStatText: {
+    fontSize: 13,
+    color: '#A1A1AA',
+    fontWeight: '600',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  bikePrice: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#FFD000',
+  },
+  bikePeriod: {
+    fontSize: 12,
+    color: '#71717A',
+  },
+  bikeImg: {
+    width: 158,
+    height: 104,
   },
   routeDot: {
     width: 12,
@@ -546,171 +538,19 @@ const styles = StyleSheet.create({
   routeDotRed: {
     backgroundColor: '#EF4444',
   },
-  mapContainer: {
-    height: 300,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  seeAll: {
-    fontSize: 13,
-    color: '#FFD000',
-    fontWeight: '500',
-  },
-  servicesScroll: {
-    paddingHorizontal: 20,
-    gap: 10,
-    marginBottom: 16,
-  },
-  serviceChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    backgroundColor: '#1C1C1F',
-    borderWidth: 1,
-    borderColor: '#27272A',
-  },
-  serviceChipActive: {
-    backgroundColor: '#FFD000',
-    borderColor: '#FFD000',
-  },
-  serviceChipText: {
-    fontSize: 13,
-    color: '#A1A1AA',
-    fontWeight: '600',
-  },
-  serviceChipTextActive: {
-    color: '#000000',
-  },
-  bikeCard: {
-    marginHorizontal: 16,
-    backgroundColor: '#1C1C1F',
-    borderRadius: 20,
-    padding: 20,
-    gap: 16,
-    borderWidth: 1,
-    borderColor: '#27272A',
-    marginBottom: 12,
-  },
-  bikeCardTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  bikeInfo: {
-    flex: 1,
-    gap: 8,
-  },
-  bikeName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
-  bikePrice: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#FFD000',
-  },
-  bikePeriod: {
-    fontSize: 12,
-    color: '#71717A',
-  },
-  bikeFeatures: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  featurePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#252528',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  featurePillText: {
-    fontSize: 12,
-    color: '#A1A1AA',
-  },
-  bikeImage: {
-    width: 175,
-    height: 130,
-    marginRight: -8,
-  },
-  bikeCardBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bikeActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  bikeActionBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#252528',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   bookNowBtn: {
-    backgroundColor: '#FFD000',
-    borderRadius: 30,
-    paddingHorizontal: 28,
-    paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFD000',
+    borderRadius: 16,
+    height: 54,
   },
   bookNowText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#000000',
-  },
-  sosBanner: {
-    marginHorizontal: 16,
-    backgroundColor: '#1C1C1F',
-    borderRadius: 14,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#EF444420',
-  },
-  sosBannerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  sosBannerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  sosBannerSub: {
-    fontSize: 12,
-    color: '#71717A',
   },
   // Modal
   modalOverlay: {

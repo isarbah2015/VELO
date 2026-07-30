@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import AnimatedLogo from '@/components/AnimatedLogo';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const SLIDES = [
   {
@@ -89,15 +89,17 @@ export default function OnboardingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Full-screen atmospheric welcome background */}
+      {/* Full-screen atmospheric welcome background — anchored so the rider
+          and motorbike stay in frame, with the text overlaid on a darker
+          lower third. */}
       <Image
         source={require('@/assets/images/onboarding-hero.png')}
-        style={StyleSheet.absoluteFill}
+        style={styles.heroBg}
         resizeMode="cover"
       />
       <LinearGradient
-        colors={['rgba(9,9,11,0.55)', 'rgba(9,9,11,0.35)', 'rgba(9,9,11,0.96)']}
-        locations={[0, 0.35, 0.82]}
+        colors={['rgba(9,9,11,0.5)', 'rgba(9,9,11,0.15)', 'rgba(9,9,11,0.75)', 'rgba(9,9,11,0.98)']}
+        locations={[0, 0.4, 0.72, 0.92]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -154,6 +156,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#09090B',
+  },
+  heroBg: {
+    position: 'absolute',
+    bottom: 0,
+    left: -width * 0.09,
+    width: width * 1.18,
+    height: height,
   },
   header: {
     flexDirection: 'row',
