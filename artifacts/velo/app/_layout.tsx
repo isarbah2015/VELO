@@ -83,7 +83,7 @@ export default function RootLayout() {
             <AppProvider>
               <ErrorBoundary>
                 <AuthGate>
-                  {!splashDone && <AnimatedSplash onComplete={() => setSplashDone(true)} />}
+                  {!splashDone && <AnimatedSplash onDone={() => setSplashDone(true)} />}
                   {splashDone && <RootLayoutNav />}
                 </AuthGate>
               </ErrorBoundary>
