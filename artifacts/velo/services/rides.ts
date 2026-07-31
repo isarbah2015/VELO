@@ -40,6 +40,12 @@ export async function getRideHistory(uid: string, role: 'rider' | 'driver' = 'ri
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride));
 }
 
+// Stream the driver's live position onto the ride doc during an active trip
+// so the rider's tracking screen can follow it in realtime.
+export async function updateDriverLocation(rideId: string, lat: number, lng: number) {
+  await updateDoc(doc(db, 'rides', rideId), { driverLoc: { lat, lng, at: Date.now() } });
+}
+
 export async function updateRideStatus(
   rideId: string,
   status: Ride['status'],

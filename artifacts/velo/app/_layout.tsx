@@ -48,6 +48,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(driver-tabs)" />
       <Stack.Screen name="tracking" />
+      <Stack.Screen name="driver-trip" />
       <Stack.Screen name="wallet" />
       <Stack.Screen name="payment-methods" />
       <Stack.Screen name="add-payment" />

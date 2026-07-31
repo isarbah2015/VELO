@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from '@/context/AppContext';
+import { watchRide } from '@/services/rides';
 
 const { width, height } = Dimensions.get('window');
 
@@ -110,6 +111,34 @@ export default function TrackingScreen() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Live driver control: once the real driver advances the ride, the actual
+  // Firestore status drives the phase — the local timer above is only the
+  // fallback animation for when no real driver is connected (demo/single
+  // device). Real status always wins and stops the simulation.
+  useEffect(() => {
+    if (!rideId) return;
+    const unsub = watchRide(rideId, (ride) => {
+      if (!ride) return;
+      if (ride.status === 'in_progress' || ride.status === 'completed' || ride.status === 'arrived') {
+        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+      }
+      if (ride.status === 'in_progress' && phaseRef.current !== 'inProgress') {
+        setPhase('inProgress');
+        phaseRef.current = 'inProgress';
+        startRef.current = Date.now();
+      } else if (ride.status === 'completed' && phaseRef.current !== 'arrived') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setPhase('arrived');
+        phaseRef.current = 'arrived';
+      } else if (ride.status === 'cancelled') {
+        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+        Alert.alert('Ride cancelled', 'This ride was cancelled.');
+        router.replace('/(tabs)');
+      }
+    });
+    return unsub;
+  }, [rideId]);
 
   const handleCancel = () => {
     Alert.alert('Cancel Ride', 'Are you sure you want to cancel this ride?', [

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -12,10 +12,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
-import { acceptRide, declineRide, recordCompletedRide } from '@/services/driver';
+import { acceptRide, declineRide } from '@/services/driver';
+import { notifyLocal, pushToUser } from '@/services/notifications';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,20 +35,33 @@ export default function DriverHomeScreen() {
   const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   const online = driverStatus?.online ?? false;
+  const router = useRouter();
+  const seenIds = useRef<Set<string>>(new Set());
 
   // Keep driver stats fresh whenever this screen mounts.
   useEffect(() => { refreshDriverStatus(); }, [refreshDriverStatus]);
 
   // Subscribe to the open-request pool in realtime, but only while online —
-  // a rider's booking then appears instantly with no manual refresh.
+  // a rider's booking then appears instantly with no manual refresh, and a
+  // local notification fires so the driver notices even without watching.
   useEffect(() => {
     if (!online) {
       setRequests([]);
       setLoading(false);
+      seenIds.current.clear();
       return;
     }
     setLoading(true);
+    let first = true;
     const unsub = watchDriverRequests((reqs) => {
+      if (!first) {
+        const fresh = reqs.find((r) => !seenIds.current.has(r.id));
+        if (fresh) {
+          notifyLocal('New ride request', `${fresh.riderName} · ${fresh.from} → ${fresh.to} · ₵${fresh.price.toFixed(2)}`, { rideId: fresh.id });
+        }
+      }
+      reqs.forEach((r) => seenIds.current.add(r.id));
+      first = false;
       setRequests(reqs);
       setLoading(false);
     });
@@ -64,8 +79,14 @@ export default function DriverHomeScreen() {
     setRequests((prev) => prev.filter((r) => r.id !== ride.id));
     if (accepted) {
       await acceptRide(ride.id, user.uid, user.name);
-      await recordCompletedRide(user.uid, ride.price);
-      await refreshDriverStatus();
+      // Tell the rider their driver is on the way (cross-device push).
+      pushToUser(ride.riderId, 'Driver found! 🏍️', `${user.name} is on the way to pick you up.`, { rideId: ride.id });
+      // Go to the live trip screen — the fare is settled there on completion,
+      // not on accept, so earnings match real finished trips.
+      router.push({
+        pathname: '/driver-trip',
+        params: { rideId: ride.id, riderName: ride.riderName, from: ride.from, to: ride.to, price: String(ride.price) },
+      });
     } else {
       await declineRide(ride.id);
     }

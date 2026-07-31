@@ -19,7 +19,9 @@ function formatDate(iso: string) {
 
 const STATUS_META: Record<Ride['status'], { label: string; color: string }> = {
   requested: { label: 'Pending', color: '#FFD000' },
-  accepted: { label: 'Completed', color: '#22C55E' },
+  accepted: { label: 'In progress', color: '#FFD000' },
+  arrived: { label: 'In progress', color: '#FFD000' },
+  in_progress: { label: 'In progress', color: '#FFD000' },
   completed: { label: 'Completed', color: '#22C55E' },
   cancelled: { label: 'Cancelled', color: '#EF4444' },
 };

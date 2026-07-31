@@ -6,6 +6,7 @@ import * as rideService from '@/services/rides';
 import * as paymentService from '@/services/payments';
 import * as driverService from '@/services/driver';
 import type { DriverStatus } from '@/services/driver';
+import { registerForPushNotifications } from '@/services/notifications';
 
 export type Role = 'rider' | 'driver';
 
@@ -20,10 +21,14 @@ export interface Ride {
   type: 'Standard' | 'Premium' | 'Group';
   price: number;
   date: string;
-  status: 'requested' | 'accepted' | 'completed' | 'cancelled';
+  // requested → accepted (driver assigned) → arrived (at pickup) →
+  // in_progress (trip underway) → completed; cancelled from any point.
+  status: 'requested' | 'accepted' | 'arrived' | 'in_progress' | 'completed' | 'cancelled';
   durationMin: number;
   driverRating: number;
   paymentMethod?: string;
+  // Live driver position, streamed to Firestore during an active trip.
+  driverLoc?: { lat: number; lng: number; at: number } | null;
 }
 
 export interface PaymentMethod {
@@ -130,6 +135,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const p = await authService.getUserProfile(fbUser.uid);
         setProfile(p);
         if (p) await loadUserData(fbUser.uid, p.role);
+        // Register for push in the background — never block sign-in on it.
+        registerForPushNotifications(fbUser.uid);
       } else {
         await AsyncStorage.removeItem(LAST_USER_KEY);
         setProfile(null);
