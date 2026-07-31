@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
+import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
 
 interface MenuItem {
   id: string;
@@ -66,6 +67,19 @@ export default function ProfileScreen() {
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const totalSpent = rides.reduce((sum, r) => (r.status === 'completed' ? sum + r.price : sum), 0);
   const isDriver = role === 'driver';
+
+  // Drivers get an extra "Driver" section with the verification flow.
+  const sections = isDriver
+    ? [
+        {
+          title: 'Driver',
+          items: [
+            { id: 'verify', label: 'Verification', sub: 'Ghana Card & motorcycle photos', icon: 'shield-checkmark-outline', iconColor: '#FFD000', chevron: true } as MenuItem,
+          ],
+        },
+        ...MENU_SECTIONS,
+      ]
+    : MENU_SECTIONS;
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -207,7 +221,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         {/* Menu Sections */}
-        {MENU_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <View key={section.title} style={styles.menuSection}>
             <Text style={styles.menuSectionTitle}>{section.title}</Text>
             <View style={styles.menuCard}>
@@ -219,6 +233,18 @@ export default function ProfileScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       if (item.id === 'payment') router.push('/payment-methods');
                       if (item.id === 'history') router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
+                      if (item.id === 'promo') router.push('/referral');
+                      if (item.id === 'verify') router.push('/driver-verify');
+                      if (item.id === 'sos') {
+                        Alert.alert(
+                          'Emergency SOS',
+                          `Call Ghana emergency services (${EMERGENCY_NUMBER}) now?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
+                          ]
+                        );
+                      }
                     }}
                     activeOpacity={0.7}
                   >

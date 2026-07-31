@@ -10,7 +10,8 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
-import { pushToUser } from '@/services/notifications';
+import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
+import { Alert } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -89,6 +90,22 @@ export default function DriverTripScreen() {
     router.replace('/(driver-tabs)');
   };
 
+  const handleSOS = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const { message } = await triggerSOS({
+      rideId, userId: user?.uid ?? '', userName: user?.name ?? 'Driver', role: 'driver', from, to,
+    });
+    Alert.alert(
+      'Emergency SOS',
+      'Your location and trip details have been logged. What next?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Share location', onPress: () => shareViaSMS(message) },
+        { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
+      ]
+    );
+  };
+
   const primary =
     phase === 'toPickup'
       ? { label: 'Arrived at pickup', onPress: arrivedAtPickup, icon: 'flag-outline' as const }
@@ -109,12 +126,15 @@ export default function DriverTripScreen() {
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
 
-      {/* Header pill */}
+      {/* Header pill + SOS */}
       <View style={[styles.header, { top: topPad }]}>
         <View style={styles.livePill}>
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>{statusLine}</Text>
         </View>
+        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
+          <Ionicons name="alert-circle" size={22} color="#EF4444" />
+        </TouchableOpacity>
       </View>
 
       {/* Bottom trip card */}
@@ -162,7 +182,14 @@ export default function DriverTripScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#09090B' },
   mapDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(9,9,11,0.25)' },
-  header: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  header: {
+    position: 'absolute', left: 16, right: 16, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'space-between',
+  },
+  sosBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
+    borderWidth: 1, borderColor: '#3F1F22', alignItems: 'center', justifyContent: 'center',
+  },
   livePill: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#131316', borderWidth: 1, borderColor: '#27272A',

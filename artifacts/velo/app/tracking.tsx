@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from '@/context/AppContext';
 import { watchRide } from '@/services/rides';
+import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,7 +34,7 @@ function formatTime(seconds: number): string {
 export default function TrackingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { cancelRide, completeRide, getDefaultPayment } = useApp();
+  const { user, cancelRide, completeRide, getDefaultPayment } = useApp();
   const params = useLocalSearchParams<{
     rideId: string;
     from: string;
@@ -140,6 +141,22 @@ export default function TrackingScreen() {
     return unsub;
   }, [rideId]);
 
+  const handleSOS = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const { message } = await triggerSOS({
+      rideId, userId: user?.uid ?? '', userName: user?.name ?? 'Rider', role: 'rider', from, to,
+    });
+    Alert.alert(
+      'Emergency SOS',
+      'Your location and trip details have been logged. What next?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Share location', onPress: () => shareViaSMS(message) },
+        { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
+      ]
+    );
+  };
+
   const handleCancel = () => {
     Alert.alert('Cancel Ride', 'Are you sure you want to cancel this ride?', [
       { text: 'No', style: 'cancel' },
@@ -219,7 +236,7 @@ export default function TrackingScreen() {
           </Text>
           <Text style={styles.headerSub}>{driverName} · {rideType} Bike</Text>
         </View>
-        <TouchableOpacity style={styles.sosBtn}>
+        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
           <Ionicons name="alert-circle" size={20} color="#EF4444" />
         </TouchableOpacity>
       </View>

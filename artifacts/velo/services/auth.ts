@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
+import { makeReferralCode } from './referrals';
 
 export type Role = 'rider' | 'driver';
 
@@ -15,6 +16,8 @@ export interface UserProfile {
   phone: string;
   role: Role;
   walletBalance: number;
+  referralCode?: string;
+  referredBy?: string;
 }
 
 const DEFAULT_DRIVER_DOC = {
@@ -43,6 +46,7 @@ export async function register(name: string, phone: string, password: string, ro
     phone,
     role,
     walletBalance: 0,
+    referralCode: makeReferralCode(name, cred.user.uid),
     createdAt: serverTimestamp(),
   });
   if (role === 'driver') {
