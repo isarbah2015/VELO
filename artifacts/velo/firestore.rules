@@ -45,6 +45,17 @@ service cloud.firestore {
       );
       allow create: if signedIn() && request.resource.data.riderId == request.auth.uid;
       allow update: if signedIn() && (resource.data.riderId == request.auth.uid || resource.data.driverId == request.auth.uid || (resource.data.driverId == null && request.resource.data.driverId == request.auth.uid));
+
+      // Per-ride chat: only the ride's rider or assigned driver may read or
+      // post. get() reads the parent ride to authorize each message.
+      match /messages/{messageId} {
+        function ride() {
+          return get(/databases/$(database)/documents/rides/$(rideId)).data;
+        }
+        allow read, create: if signedIn() && (
+          ride().riderId == request.auth.uid || ride().driverId == request.auth.uid
+        );
+      }
     }
   }
 }

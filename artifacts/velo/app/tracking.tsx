@@ -158,14 +158,20 @@ export default function TrackingScreen() {
   const handleDone = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const defaultPayment = getDefaultPayment();
+    const paymentMethod = defaultPayment?.name ?? 'MTN MoMo';
+    const durationMin = Math.ceil(rideSeconds / 60) + 20;
     if (rideId) {
-      await completeRide(rideId, {
-        durationMin: Math.ceil(rideSeconds / 60) + 20,
-        paymentMethod: defaultPayment?.name ?? 'MTN MoMo',
-      });
+      await completeRide(rideId, { durationMin, paymentMethod, rating: rating || undefined });
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace('/(tabs)');
+    // Show a receipt instead of dropping straight back to the home map.
+    router.replace({
+      pathname: '/receipt',
+      params: {
+        from, to, price: String(price), durationMin: String(durationMin),
+        paymentMethod, driverName, rideType, rating: String(rating || 0),
+      },
+    });
   };
 
   const isWeb = Platform.OS === 'web';
@@ -228,6 +234,7 @@ export default function TrackingScreen() {
             driverName={driverName}
             driverRating={driverRating}
             onCancel={handleCancel}
+            onMessage={() => rideId && router.push({ pathname: '/chat', params: { rideId, otherName: driverName } })}
           />
         )}
 
@@ -364,10 +371,10 @@ function TrackingMap({
 }
 
 function ArrivingPanel({
-  etaSeconds, driverName, driverRating, onCancel,
+  etaSeconds, driverName, driverRating, onCancel, onMessage,
 }: {
   etaSeconds: number; driverName: string; driverRating: number;
-  onCancel: () => void;
+  onCancel: () => void; onMessage: () => void;
 }) {
   return (
     <View style={styles.panel}>
@@ -410,7 +417,7 @@ function ArrivingPanel({
           <Ionicons name="call-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Call</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onMessage}>
           <Ionicons name="chatbubble-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Message</Text>
         </TouchableOpacity>

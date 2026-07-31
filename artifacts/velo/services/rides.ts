@@ -14,9 +14,11 @@ export async function createRide(input: {
   to: string;
   type: Ride['type'];
   price: number;
+  scheduledFor?: string;
 }): Promise<string> {
   const ref = await addDoc(ridesCol, {
     ...input,
+    scheduledFor: input.scheduledFor ?? null,
     driverId: null,
     driverName: null,
     date: new Date().toISOString(),

@@ -12,7 +12,8 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -41,6 +42,24 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayoutNav() {
+  const router = useRouter();
+
+  // Tapping a push notification deep-links to the relevant screen. Ride
+  // pushes carry { rideId, type } — riders land on live tracking, a driver's
+  // new-request push opens their dashboard.
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { type?: string; rideId?: string };
+      if (!data) return;
+      if (data.type === 'request') {
+        router.push('/(driver-tabs)');
+      } else if (data.rideId) {
+        router.push({ pathname: '/tracking', params: { rideId: data.rideId } });
+      }
+    });
+    return () => sub.remove();
+  }, [router]);
+
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="onboarding" />
@@ -49,6 +68,10 @@ function RootLayoutNav() {
       <Stack.Screen name="(driver-tabs)" />
       <Stack.Screen name="tracking" />
       <Stack.Screen name="driver-trip" />
+      <Stack.Screen name="chat" />
+      <Stack.Screen name="receipt" />
+      <Stack.Screen name="driver-verify" />
+      <Stack.Screen name="referral" />
       <Stack.Screen name="wallet" />
       <Stack.Screen name="payment-methods" />
       <Stack.Screen name="add-payment" />

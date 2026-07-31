@@ -127,6 +127,12 @@ export default function DriverTripScreen() {
             <Text style={styles.riderName} numberOfLines={1}>{riderName}</Text>
             <Text style={styles.fare}>₵{price.toFixed(2)}</Text>
           </View>
+          <TouchableOpacity
+            style={styles.chatBtn}
+            onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+          >
+            <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.callBtn}>
             <Ionicons name="call" size={18} color="#000" />
           </TouchableOpacity>
@@ -181,6 +187,10 @@ const styles = StyleSheet.create({
   callBtn: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFD000',
     alignItems: 'center', justifyContent: 'center',
+  },
+  chatBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#1C1C1F',
+    borderWidth: 1, borderColor: '#3F3F46', alignItems: 'center', justifyContent: 'center',
   },
   routeBox: { backgroundColor: '#1C1C1F', borderRadius: 16, padding: 14, gap: 6 },
   routeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

@@ -29,6 +29,10 @@ export interface Ride {
   paymentMethod?: string;
   // Live driver position, streamed to Firestore during an active trip.
   driverLoc?: { lat: number; lng: number; at: number } | null;
+  // Rider's star rating of the completed trip (1–5).
+  rating?: number;
+  // ISO datetime when a ride is booked for later; absent for on-demand rides.
+  scheduledFor?: string;
 }
 
 export interface PaymentMethod {
@@ -72,10 +76,10 @@ interface AppContextType {
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
 
-  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number }) => Promise<string>;
+  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => Promise<string>;
   refreshRides: () => Promise<void>;
   cancelRide: (rideId: string) => Promise<void>;
-  completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string }) => Promise<void>;
+  completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => Promise<void>;
 
   addPaymentMethod: (method: Omit<PaymentMethod, 'id'>) => Promise<void>;
   removePaymentMethod: (id: string) => Promise<void>;
@@ -195,7 +199,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(await rideService.getRideHistory(firebaseUser.uid, 'rider'));
   }, [firebaseUser]);
 
-  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number }) => {
+  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => {
     if (!firebaseUser || !profile) throw new Error('Not signed in');
     return rideService.createRide({ ...input, riderId: firebaseUser.uid, riderName: profile.name });
   }, [firebaseUser, profile]);
@@ -205,7 +209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await refreshRides();
   }, [refreshRides]);
 
-  const completeRide = useCallback(async (rideId: string, extra: { durationMin: number; paymentMethod?: string }) => {
+  const completeRide = useCallback(async (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => {
     await rideService.updateRideStatus(rideId, 'completed', extra);
     await refreshRides();
   }, [refreshRides]);
