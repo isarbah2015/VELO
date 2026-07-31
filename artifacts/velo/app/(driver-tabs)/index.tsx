@@ -17,7 +17,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide } from '@/services/driver';
-import { notifyLocal, pushToUser } from '@/services/notifications';
+import { notifyLocal } from '@/services/notifications';
 
 const { width, height } = Dimensions.get('window');
 
@@ -79,8 +79,8 @@ export default function DriverHomeScreen() {
     setRequests((prev) => prev.filter((r) => r.id !== ride.id));
     if (accepted) {
       await acceptRide(ride.id, user.uid, user.name);
-      // Tell the rider their driver is on the way (cross-device push).
-      pushToUser(ride.riderId, 'Driver found! 🏍️', `${user.name} is on the way to pick you up.`, { rideId: ride.id });
+      // The rider's "Driver found" push now fires server-side from the
+      // onRideStatusChange Cloud Function (trusted), so we don't push here.
       // Go to the live trip screen — the fare is settled there on completion,
       // not on accept, so earnings match real finished trips.
       router.push({

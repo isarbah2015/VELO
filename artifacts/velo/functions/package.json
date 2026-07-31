@@ -1,0 +1,14 @@
+{
+  "name": "velo-functions",
+  "description": "Cloud Functions for VELO — server-side push notifications",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "expo-server-sdk": "^3.10.0",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "private": true
+}
