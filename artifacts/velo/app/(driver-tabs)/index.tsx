@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -9,13 +9,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
-import { getDriverRequests } from '@/services/rides';
+import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide, recordCompletedRide } from '@/services/driver';
 
 const { width, height } = Dimensions.get('window');
@@ -35,17 +34,24 @@ export default function DriverHomeScreen() {
 
   const online = driverStatus?.online ?? false;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [reqs] = await Promise.all([getDriverRequests(), refreshDriverStatus()]);
-      setRequests(reqs);
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshDriverStatus]);
+  // Keep driver stats fresh whenever this screen mounts.
+  useEffect(() => { refreshDriverStatus(); }, [refreshDriverStatus]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Subscribe to the open-request pool in realtime, but only while online —
+  // a rider's booking then appears instantly with no manual refresh.
+  useEffect(() => {
+    if (!online) {
+      setRequests([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const unsub = watchDriverRequests((reqs) => {
+      setRequests(reqs);
+      setLoading(false);
+    });
+    return unsub;
+  }, [online]);
 
   const toggleOnline = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

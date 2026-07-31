@@ -56,3 +56,12 @@ export async function getDriverRequests(): Promise<Ride[]> {
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride));
 }
+
+// Realtime version of getDriverRequests: an online driver subscribes to the
+// open-request pool so a rider's new booking shows up instantly, no refresh.
+export function watchDriverRequests(callback: (rides: Ride[]) => void): Unsubscribe {
+  const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)));
+  });
+}
