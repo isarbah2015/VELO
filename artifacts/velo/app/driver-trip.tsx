@@ -11,7 +11,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
-import { distanceKm, etaMinutes } from '@/services/geo';
+import { distanceKm, etaMinutes, getRoute, type RouteResult } from '@/services/geo';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
 
@@ -148,17 +148,34 @@ export default function DriverTripScreen() {
   const statusLine =
     phase === 'toPickup' ? 'Head to pickup' : phase === 'arrived' ? 'Waiting for rider' : 'Trip in progress';
 
-  // Live distance + ETA to the current navigation target: the rider (while
-  // heading to pickup) or the destination (once the trip is underway).
+  // Navigation target: the rider's pickup while heading there, then the
+  // destination once the trip starts.
   const target: LngLat | null =
     phase === 'inProgress' ? destLL ?? null : riderPos ?? pickupLL ?? null;
-  // Seed an origin a few km from pickup so the ETA reads believably when the
-  // simulator/device isn't giving a nearby GPS fix; prefer real GPS when close.
+  // Seed an origin a few km from pickup so the route/ETA read believably when
+  // the simulator/device isn't giving a nearby GPS fix; prefer real GPS.
   const seeded: LngLat | null = pickupLL ? [pickupLL[0] + 0.03, pickupLL[1] + 0.028] : null;
-  let origin: LngLat | null = seeded;
-  if (driverPos && target && distanceKm(driverPos, target) < 35) origin = driverPos;
-  const distKm = origin && target ? distanceKm(origin, target) : null;
-  const etaMin = distKm != null ? etaMinutes(distKm) : null;
+  // Prefer real GPS only when it's a plausibly-nearby fix (< 35 km from the
+  // target); otherwise fall back to pickup (in-trip) or the seeded point (to
+  // pickup) so the simulator's far-away default location can't blow up the ETA.
+  const fallbackOrigin: LngLat | null = phase === 'inProgress' ? (pickupLL ?? seeded) : seeded;
+  const origin: LngLat | null =
+    driverPos && target && distanceKm(driverPos, target) < 35 ? driverPos : fallbackOrigin;
+
+  // Fetch a road-following route for the current leg. Re-runs when the phase or
+  // the endpoints change (not on every GPS tick, to avoid hammering the router).
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const legKey = `${phase}|${pickupLL?.join()}|${destLL?.join()}|${riderPos?.join()}`;
+  useEffect(() => {
+    if (!origin || !target) { setRoute(null); return; }
+    let alive = true;
+    getRoute(origin, target).then((r) => { if (alive) setRoute(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey]);
+
+  const distKm = route?.distanceKm ?? (origin && target ? distanceKm(origin, target) : null);
+  const etaMin = route?.durationMin ?? (distKm != null ? etaMinutes(distKm) : null);
   const targetLabel = phase === 'inProgress' ? 'to destination' : `to ${riderName.split(' ')[0]}`;
 
   // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
@@ -188,6 +205,7 @@ export default function DriverTripScreen() {
           dest={destLL}
           driver={driverPos}
           rider={riderPos}
+          routeLine={route?.coords ?? null}
         />
       </View>
       <View style={styles.mapDim} pointerEvents="none" />

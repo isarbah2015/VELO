@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
-import { Camera, Map, Marker, UserLocation } from '@maplibre/maplibre-react-native';
+import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 
 // Coordinates are [longitude, latitude] for MapLibre.
 const ACCRA: [number, number] = [-0.187, 5.6037];
@@ -71,6 +71,7 @@ export default function LiveMap({
   dest,
   driver,
   rider,
+  routeLine,
   showDemand,
 }: {
   width: number;
@@ -81,6 +82,7 @@ export default function LiveMap({
   dest?: [number, number];
   driver?: [number, number] | null; // live driver position (bike marker)
   rider?: [number, number] | null; // live rider position at pickup
+  routeLine?: [number, number][] | null; // road-following navigation polyline
   showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
 }) {
   const p = pickup ?? PICKUP;
@@ -104,6 +106,30 @@ export default function LiveMap({
 
         {mode === 'route' ? (
           <>
+            {routeLine && routeLine.length > 1 ? (
+              <GeoJSONSource
+                id="navRoute"
+                data={{
+                  type: 'Feature',
+                  properties: {},
+                  geometry: { type: 'LineString', coordinates: routeLine },
+                }}
+              >
+                {/* wide translucent casing + bright core line = premium nav look */}
+                <Layer
+                  id="navRouteCasing"
+                  type="line"
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                  paint={{ 'line-color': '#1E63FF', 'line-width': 10, 'line-opacity': 0.35 }}
+                />
+                <Layer
+                  id="navRouteLine"
+                  type="line"
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                  paint={{ 'line-color': '#4DA6FF', 'line-width': 5 }}
+                />
+              </GeoJSONSource>
+            ) : null}
             <Marker id="pickup" lngLat={p}>
               <Pin color="#FFD000" />
             </Marker>

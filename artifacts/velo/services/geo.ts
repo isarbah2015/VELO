@@ -27,6 +27,41 @@ export function etaMinutes(km: number): number {
   return Math.max(1, Math.round((km / 22) * 60));
 }
 
+export interface RouteResult {
+  coords: LngLat[]; // polyline following roads (or a straight line on fallback)
+  distanceKm: number;
+  durationMin: number;
+}
+
+/**
+ * Road-following route between two points via the public OSRM server, so the
+ * driver map draws a real navigation line (like Yandex/Google). Falls back to a
+ * straight line + haversine estimate if the network/route lookup fails.
+ */
+export async function getRoute(from: LngLat, to: LngLat): Promise<RouteResult> {
+  const km = distanceKm(from, to);
+  const fallback: RouteResult = { coords: [from, to], distanceKm: km, durationMin: etaMinutes(km) };
+  try {
+    const url =
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const route = json?.routes?.[0];
+    const coords: LngLat[] | undefined = route?.geometry?.coordinates;
+    if (coords && coords.length > 1) {
+      return {
+        coords,
+        distanceKm: (route.distance ?? km * 1000) / 1000,
+        durationMin: Math.max(1, Math.round((route.duration ?? 0) / 60)) || etaMinutes(km),
+      };
+    }
+  } catch {
+    // offline / server down — straight-line fallback
+  }
+  return fallback;
+}
+
 export async function geocode(address: string): Promise<LngLat | null> {
   const q = address?.trim();
   if (!q) return null;
