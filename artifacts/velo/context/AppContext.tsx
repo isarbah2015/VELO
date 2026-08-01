@@ -8,6 +8,7 @@ import * as driverService from '@/services/driver';
 import type { DriverStatus } from '@/services/driver';
 import { registerForPushNotifications } from '@/services/notifications';
 import { geocode } from '@/services/geo';
+import { type NavMarker, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
 export type Role = 'rider' | 'driver';
 
@@ -98,6 +99,9 @@ interface AppContextType {
 
   refreshDriverStatus: () => Promise<void>;
   setOnline: (online: boolean) => Promise<void>;
+
+  navMarker: NavMarker;
+  setNavMarker: (marker: NavMarker) => void;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -115,6 +119,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
+  const [navMarker, setNavMarkerState] = useState<NavMarker>(DEFAULT_NAV_MARKER);
+
+  useEffect(() => {
+    AsyncStorage.getItem('velo_nav_marker').then((v) => {
+      if (v) { try { setNavMarkerState(JSON.parse(v)); } catch {} }
+    });
+  }, []);
+
+  const setNavMarker = useCallback((m: NavMarker) => {
+    setNavMarkerState(m);
+    AsyncStorage.setItem('velo_nav_marker', JSON.stringify(m)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(ONBOARDING_KEY).then((v) => { if (v) setIsOnboarded(true); });
@@ -316,11 +332,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshWallet,
     refreshDriverStatus,
     setOnline,
+    navMarker,
+    setNavMarker,
   }), [
     isLoading, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
-    refreshDriverStatus, setOnline,
+    refreshDriverStatus, setOnline, navMarker, setNavMarker,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

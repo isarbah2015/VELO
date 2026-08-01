@@ -28,7 +28,7 @@ const { width, height } = Dimensions.get('window');
 // chart live on the Earnings tab, so nothing is lost by keeping this clean.
 export default function DriverHomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, driverStatus, setOnline, refreshDriverStatus } = useApp();
+  const { user, driverStatus, setOnline, refreshDriverStatus, navMarker } = useApp();
   const [requests, setRequests] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const isWeb = Platform.OS === 'web';
@@ -115,7 +115,7 @@ export default function DriverHomeScreen() {
 
       {/* Full-screen map with the rider-demand heatmap (Yandex-Pro style) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="nearby" showDemand />
+        <LiveMap width={width} height={height} mode="nearby" showDemand navMarker={navMarker} />
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
 

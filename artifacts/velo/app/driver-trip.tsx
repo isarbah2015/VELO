@@ -28,7 +28,7 @@ type Phase = 'toPickup' | 'arrived' | 'inProgress';
 export default function DriverTripScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, refreshDriverStatus } = useApp();
+  const { user, refreshDriverStatus, navMarker } = useApp();
   const params = useLocalSearchParams<{
     rideId: string; riderName?: string; riderPhone?: string; from?: string; to?: string; price?: string;
     fromLat?: string; fromLng?: string; toLat?: string; toLng?: string;
@@ -174,8 +174,17 @@ export default function DriverTripScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legKey]);
 
-  const distKm = route?.distanceKm ?? (origin && target ? distanceKm(origin, target) : null);
-  const etaMin = route?.durationMin ?? (distKm != null ? etaMinutes(distKm) : null);
+  // Live countdown: recompute distance from the driver's *current* position
+  // straight to the target on every GPS tick (cheap, no routing API) — the
+  // drawn route line stays the road geometry, but the number ticks down as the
+  // driver moves. ×1.3 approximates road vs straight-line distance.
+  const ROAD_FACTOR = 1.3;
+  const liveKm =
+    driverPos && target && distanceKm(driverPos, target) < 35
+      ? distanceKm(driverPos, target) * ROAD_FACTOR
+      : route?.distanceKm ?? (origin && target ? distanceKm(origin, target) * ROAD_FACTOR : null);
+  const distKm = liveKm;
+  const etaMin = distKm != null ? etaMinutes(distKm) : null;
   const targetLabel = phase === 'inProgress' ? 'to destination' : `to ${riderName.split(' ')[0]}`;
 
   // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
@@ -207,6 +216,7 @@ export default function DriverTripScreen() {
           rider={riderPos}
           routeLine={route?.coords ?? null}
           follow={phase === 'inProgress'}
+          navMarker={navMarker}
         />
       </View>
       {/* Only dim the map when a big card is shown; the in-trip view stays clean. */}
@@ -262,19 +272,36 @@ export default function DriverTripScreen() {
       </View>
 
       {phase === 'inProgress' ? (
-        /* In-trip: distraction-free. Just a slim drop-off bar + Complete. */
-        <View style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.miniLabel}>Dropping off</Text>
-            <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
-          </View>
-          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
-            <Ionicons name="call" size={18} color="#FFD000" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.miniComplete} onPress={completeTrip} activeOpacity={0.85}>
-            <Ionicons name="checkmark-done" size={18} color="#000" />
-            <Text style={styles.miniCompleteText}>Complete</Text>
-          </TouchableOpacity>
+        /* In-trip: distraction-free premium drop-off card. */
+        <View style={[styles.miniWrap, { paddingBottom: insets.bottom + 14 }]}>
+          <LinearGradient
+            colors={['#1B1B1F', '#131316']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.miniBar}
+          >
+            <View style={styles.miniPin}>
+              <Ionicons name="location" size={17} color="#EF4444" />
+            </View>
+            <View style={styles.miniTextWrap}>
+              <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF</Text>
+              <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
+            </View>
+            <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+              <Ionicons name="call" size={18} color="#FFD000" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={completeTrip} activeOpacity={0.9}>
+              <LinearGradient
+                colors={['#FFDE5C', '#FFB800']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.miniComplete}
+              >
+                <Ionicons name="checkmark-done" size={18} color="#000" />
+                <Text style={styles.miniCompleteText}>Complete</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
         </View>
       ) : (
         /* Heading to / at pickup: full rider card so the driver can identify +
@@ -340,21 +367,32 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
   riderChipInitial: { fontSize: 20, fontWeight: '800', color: '#000' },
-  miniBar: {
+  miniWrap: {
     position: 'absolute', left: 12, right: 12, bottom: 0,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: 'rgba(19,19,22,0.96)', borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    borderWidth: 1, borderColor: '#27272A', paddingHorizontal: 18, paddingTop: 14,
+    backgroundColor: '#131316', borderTopLeftRadius: 24, borderTopRightRadius: 24,
   },
-  miniLabel: { color: '#71717A', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  miniTo: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 2 },
+  miniBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, borderColor: '#2A2A2D',
+    paddingHorizontal: 12, paddingVertical: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 20,
+  },
+  miniPin: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  miniTextWrap: { flex: 1, justifyContent: 'center' },
+  miniLabel: { color: '#8A8A93', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  miniTo: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', marginTop: 2, letterSpacing: -0.3 },
   miniCall: {
-    width: 46, height: 46, borderRadius: 23, backgroundColor: '#1C1C1F',
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#1C1C1F',
     borderWidth: 1, borderColor: '#3F3F46', alignItems: 'center', justifyContent: 'center',
   },
   miniComplete: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#FFD000', borderRadius: 14, height: 46, paddingHorizontal: 18,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 14, height: 44, paddingHorizontal: 16,
   },
   miniCompleteText: { fontSize: 15, fontWeight: '800', color: '#000' },
   livePill: {

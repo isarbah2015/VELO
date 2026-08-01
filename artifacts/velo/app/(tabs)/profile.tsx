@@ -9,12 +9,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
+import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
 
 interface MenuItem {
   id: string;
@@ -57,7 +58,7 @@ const ROLE_LABEL: Record<Role, string> = { rider: 'Rider', driver: 'Driver' };
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, role, rides, driverStatus, logout, switchRole } = useApp();
+  const { user, role, rides, driverStatus, logout, switchRole, navMarker, setNavMarker } = useApp();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
@@ -219,6 +220,47 @@ export default function ProfileScreen() {
             <Text style={styles.walletAddText}>Top Up</Text>
           </View>
         </TouchableOpacity>
+
+        {/* Navigation marker picker (drivers) */}
+        {isDriver && (
+          <View style={styles.navCard}>
+            <Text style={styles.navTitle}>Navigation marker</Text>
+            <Text style={styles.navSub}>Your icon on the live map</Text>
+
+            <View style={styles.navIconRow}>
+              {NAV_ICONS.map((ic) => {
+                const active = navMarker.icon === ic.id;
+                const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
+                return (
+                  <TouchableOpacity
+                    key={ic.id}
+                    style={[styles.navIconChip, active && { borderColor: navMarker.color, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                    onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, icon: ic.id }); }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={[styles.navIconPuck, { backgroundColor: active ? navMarker.color : '#1C1C1F' }]}>
+                      <Family name={ic.name as any} size={22} color={active ? (navMarker.color === '#FFFFFF' || navMarker.color === '#FFD000' ? '#000' : '#FFF') : '#A1A1AA'} />
+                    </View>
+                    <Text style={[styles.navIconLabel, active && { color: '#FFFFFF' }]}>{ic.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.navColorRow}>
+              {NAV_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.navSwatch, { backgroundColor: c }, navMarker.color === c && styles.navSwatchActive]}
+                  onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, color: c }); }}
+                  activeOpacity={0.85}
+                >
+                  {navMarker.color === c && <Ionicons name="checkmark" size={16} color={c === '#FFFFFF' || c === '#FFD000' ? '#000' : '#FFF'} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Menu Sections */}
         {sections.map((section) => (
@@ -406,6 +448,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#27272A',
     alignSelf: 'stretch',
   },
+  navCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
+  },
+  navTitle: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  navSub: { fontSize: 12, color: '#71717A', marginTop: 2, marginBottom: 14 },
+  navIconRow: { flexDirection: 'row', gap: 10 },
+  navIconChip: {
+    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12,
+    borderRadius: 14, borderWidth: 1.5, borderColor: '#2A2A2D', backgroundColor: '#131316',
+  },
+  navIconPuck: {
+    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  navIconLabel: { fontSize: 12, fontWeight: '700', color: '#A1A1AA' },
+  navColorRow: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'center' },
+  navSwatch: {
+    width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'transparent',
+  },
+  navSwatchActive: { borderColor: '#FFFFFF' },
   roleSwitchCard: {
     marginHorizontal: 16,
     backgroundColor: '#1C1C1F',

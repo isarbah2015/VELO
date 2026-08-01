@@ -1,7 +1,9 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import { type NavMarker, navIcon } from '@/services/navMarker';
 
 // Coordinates are [longitude, latitude] for MapLibre.
 const ACCRA: [number, number] = [-0.187, 5.6037];
@@ -54,6 +56,22 @@ function HeatBlob({ intensity, index }: { intensity: number; index: number }) {
   );
 }
 
+// The driver's own follow puck — their chosen icon + colour, in a rounded chip
+// with a subtle heading notch, sitting on the live GPS position.
+function NavPuck({ marker }: { marker: NavMarker }) {
+  const ic = navIcon(marker.icon);
+  const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
+  const dark = marker.color === '#FFFFFF' || marker.color === '#FFD000';
+  return (
+    <View style={styles.puckWrap} pointerEvents="none">
+      <View style={[styles.puckHalo, { backgroundColor: marker.color }]} />
+      <View style={[styles.puck, { backgroundColor: marker.color }]}>
+        <Family name={ic.name as any} size={20} color={dark ? '#000' : '#FFFFFF'} />
+      </View>
+    </View>
+  );
+}
+
 function Pin({ color, bike }: { color: string; bike?: boolean }) {
   return (
     <View style={styles.pinWrap}>
@@ -74,6 +92,7 @@ export default function LiveMap({
   routeLine,
   showDemand,
   follow,
+  navMarker,
 }: {
   width: number;
   height: number;
@@ -86,6 +105,7 @@ export default function LiveMap({
   routeLine?: [number, number][] | null; // road-following navigation polyline
   showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
   follow?: boolean; // turn-by-turn camera that follows the driver with heading
+  navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
 }) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
@@ -102,7 +122,7 @@ export default function LiveMap({
         ) : (
           <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
         )}
-        <UserLocation />
+        <UserLocation>{navMarker ? <NavPuck marker={navMarker} /> : null}</UserLocation>
 
         {showDemand
           ? DEMAND.map(([lng, lat, intensity], i) => (
@@ -149,11 +169,7 @@ export default function LiveMap({
                 <Pin color="#4DB8FF" />
               </Marker>
             ) : null}
-            {driver ? (
-              <Marker id="driver" lngLat={driver}>
-                <Pin color="#22C55E" bike />
-              </Marker>
-            ) : null}
+            {/* The driver's own position is the UserLocation follow-puck above. */}
           </>
         ) : (
           NEARBY.map((c, i) => (
@@ -168,6 +184,13 @@ export default function LiveMap({
 }
 
 const styles = StyleSheet.create({
+  puckWrap: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
+  puckHalo: { position: 'absolute', width: 56, height: 56, borderRadius: 28, opacity: 0.22 },
+  puck: {
+    width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: '#FFFFFF',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 6,
+  },
   pinWrap: { alignItems: 'center', justifyContent: 'center' },
   pin: {
     width: 16,
