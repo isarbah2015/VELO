@@ -16,9 +16,10 @@ export interface Ride {
   riderName: string;
   driverId: string | null;
   driverName: string | null;
+  driverPhone?: string | null;
   from: string;
   to: string;
-  type: 'Standard' | 'Premium' | 'Group';
+  type: 'Standard' | 'Premium' | 'Bossu';
   price: number;
   date: string;
   // requested → accepted (driver assigned) → arrived (at pickup) →
@@ -87,6 +88,7 @@ interface AppContextType {
   setDefaultPayment: (id: string) => Promise<void>;
   getDefaultPayment: () => PaymentMethod | null;
   topUpWallet: (amount: number, methodId: string) => Promise<void>;
+  refreshWallet: () => Promise<void>;
 
   refreshDriverStatus: () => Promise<void>;
   setOnline: (online: boolean) => Promise<void>;
@@ -246,6 +248,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWalletTransactions(await paymentService.getTransactions(firebaseUser.uid));
   }, [firebaseUser, paymentMethods]);
 
+  // Re-reads wallet balance + transactions after a server-side credit
+  // (e.g. a Paystack top-up that was applied by the Cloud Function).
+  const refreshWallet = useCallback(async () => {
+    if (!firebaseUser) return;
+    setProfile(await authService.getUserProfile(firebaseUser.uid));
+    setWalletTransactions(await paymentService.getTransactions(firebaseUser.uid));
+  }, [firebaseUser]);
+
   const refreshDriverStatus = useCallback(async () => {
     if (!firebaseUser) return;
     setDriverStatus(await driverService.getDriverStatus(firebaseUser.uid));
@@ -287,12 +297,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDefaultPayment,
     getDefaultPayment,
     topUpWallet,
+    refreshWallet,
     refreshDriverStatus,
     setOnline,
   }), [
     isLoading, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
-    addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet,
+    addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline,
   ]);
 

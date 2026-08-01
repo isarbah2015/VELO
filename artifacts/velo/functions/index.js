@@ -1,7 +1,11 @@
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onRequest } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { Expo } = require('expo-server-sdk');
+const { createPaystackApp, creditWallet } = require('./paystack-app');
+const { createPaystackClient } = require('./paystack-client');
 
 initializeApp();
 const db = getFirestore();
@@ -80,3 +84,50 @@ exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) =
       break;
   }
 });
+
+// ---- Paystack payments (wallet top-ups) --------------------------------
+// Secrets are set with:  firebase functions:secrets:set PAYSTACK_SECRET_KEY
+const paystackSecretKey = defineSecret('PAYSTACK_SECRET_KEY');
+const paystackPublicKey = defineSecret('PAYSTACK_PUBLIC_KEY');
+
+const paystackApp = createPaystackApp(
+  () => paystackSecretKey.value(),
+  () => (paystackPublicKey.value ? paystackPublicKey.value() : ''),
+);
+
+// HTTPS API: /config, /initialize, /verify/:reference
+exports.paystackApi = onRequest(
+  { secrets: [paystackSecretKey, paystackPublicKey], cors: true },
+  paystackApp,
+);
+
+// Paystack webhook — credits the wallet server-side even if the app never
+// returns to /verify (e.g. user closes the browser after paying).
+exports.paystackWebhook = onRequest(
+  { secrets: [paystackSecretKey] },
+  async (req, res) => {
+    try {
+      const client = createPaystackClient(paystackSecretKey.value());
+      const raw = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+      const sig = req.headers['x-paystack-signature'];
+      if (!client.verifyWebhookSignature(raw, sig)) {
+        return res.status(401).send('invalid signature');
+      }
+      const event = req.body;
+      if (event && event.event === 'charge.success') {
+        const data = event.data || {};
+        const meta = data.metadata || {};
+        const uid = meta.userId;
+        const reference = data.reference;
+        if (uid && reference && String(reference).startsWith('VELO_')) {
+          const amountGhs = Number(meta.amountGhs) || Number(data.amount) / 100;
+          await creditWallet(db, { uid, reference, amountGhs, channel: data.channel });
+        }
+      }
+      res.status(200).send('ok');
+    } catch (err) {
+      console.error('paystack webhook failed', err);
+      res.status(500).send('error');
+    }
+  },
+);

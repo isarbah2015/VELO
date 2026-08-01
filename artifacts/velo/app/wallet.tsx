@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,6 +17,8 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type WalletTransaction } from '@/context/AppContext';
+import { auth } from '@/config/firebase';
+import { topUpViaPaystack, reconcilePendingTopups } from '@/services/paystack';
 
 const QUICK_AMOUNTS = [20, 50, 100, 200];
 
@@ -50,7 +52,7 @@ function TransactionRow({ tx }: { tx: WalletTransaction }) {
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { walletBalance, walletTransactions, paymentMethods, getDefaultPayment, topUpWallet } = useApp();
+  const { walletBalance, walletTransactions, paymentMethods, getDefaultPayment, refreshWallet } = useApp();
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
 
@@ -59,6 +61,14 @@ export default function WalletScreen() {
   const [error, setError] = useState('');
   const defaultMethod = getDefaultPayment();
 
+  // Catch top-ups that were paid but never confirmed (app closed mid-payment).
+  // Replaces the need for a Paystack webhook, which the shared account can't add.
+  useEffect(() => {
+    reconcilePendingTopups()
+      .then((credited) => { if (credited) refreshWallet(); })
+      .catch(() => {});
+  }, [refreshWallet]);
+
   const handleTopUp = async () => {
     setError('');
     const num = parseFloat(amount);
@@ -66,19 +76,26 @@ export default function WalletScreen() {
       setError('Minimum top-up is ₵5.00');
       return;
     }
-    if (!defaultMethod) {
-      setError('Add a payment method first');
-      return;
-    }
+    // Paystack needs an email; Auth stores VELO's synthetic phone email.
+    const email = auth.currentUser?.email ?? 'wallet@velo.app';
     setIsLoading(true);
-    await topUpWallet(num, defaultMethod.id);
-    setIsLoading(false);
-    setAmount('');
-    const reference = `VELO-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    router.push({
-      pathname: '/payment-confirmation',
-      params: { amount: num.toString(), reference, method: defaultMethod.name },
-    });
+    try {
+      const { paid, reference } = await topUpViaPaystack(num, email);
+      if (!paid) {
+        setError('Payment was not completed. You were not charged.');
+        return;
+      }
+      await refreshWallet(); // balance credited server-side
+      setAmount('');
+      router.push({
+        pathname: '/payment-confirmation',
+        params: { amount: num.toString(), reference, method: 'Paystack' },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Payment failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -166,9 +183,9 @@ export default function WalletScreen() {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity
-              style={[styles.topupBtn, (!defaultMethod || isLoading) && styles.topupBtnDisabled]}
+              style={[styles.topupBtn, isLoading && styles.topupBtnDisabled]}
               onPress={handleTopUp}
-              disabled={!defaultMethod || isLoading}
+              disabled={isLoading}
               activeOpacity={0.85}
             >
               {isLoading ? (

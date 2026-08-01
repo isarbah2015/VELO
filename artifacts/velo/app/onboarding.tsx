@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
-  FlatList,
   Image,
   StyleSheet,
   Text,
@@ -18,12 +18,32 @@ import AnimatedLogo from '@/components/AnimatedLogo';
 
 const { width, height } = Dimensions.get('window');
 
-const SLIDES = [
+type SlideBg = {
+  image?: number;
+  imageStyle?: object; // per-slide framing (scale/rotate/offset) for the hero image
+  colors: readonly [string, string, ...string[]];
+  glow: string;
+};
+
+const SLIDES: {
+  id: string;
+  tag: string;
+  title: string;
+  subtitle: string;
+  features?: string[];
+  bg: SlideBg;
+}[] = [
   {
     id: '1',
     tag: 'Premium Rides',
     title: 'Ride Safe.\nRide Fast.',
     subtitle: "Ghana's #1 bike-hailing app. Get to your destination fast, safely, and affordably.",
+    // Human hero photo, warmed with a subtle gold glow.
+    bg: {
+      image: require('@/assets/images/onboarding-hero.png'),
+      colors: ['#09090B', '#0B0A06', '#09090B'],
+      glow: 'rgba(255,208,0,0.20)',
+    },
   },
   {
     id: '2',
@@ -31,6 +51,13 @@ const SLIDES = [
     title: 'No Surprises.\nKnow Your Fare.',
     subtitle: 'See the full price before you ride. Base ₵5 + ₵2.50/km — no hidden fees, ever.',
     features: ['Base Fare ₵5.00', '₵2.50 per km', '₵0.50 per min'],
+    // Standard bike — zoomed to a 3/4 front view, sitting in the upper area.
+    bg: {
+      image: require('@/assets/images/bike-standard.png'),
+      imageStyle: { transform: [{ scale: 1.55 }, { translateX: -width * 0.2 }, { translateY: -height * 0.12 }] },
+      colors: ['#0A1F2E', '#0A1424', '#09090B'],
+      glow: 'rgba(255,208,0,0.22)',
+    },
   },
   {
     id: '3',
@@ -38,6 +65,13 @@ const SLIDES = [
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
+    // Premium bike — rotated vertical (front up, tail down toward the text).
+    bg: {
+      image: require('@/assets/images/bike-premium.png'),
+      imageStyle: { transform: [{ rotate: '-90deg' }, { scale: 1.15 }, { translateX: -height * 0.04 }] },
+      colors: ['#0A2A1C', '#0A1A14', '#09090B'],
+      glow: 'rgba(34,197,94,0.22)',
+    },
   },
 ];
 
@@ -46,14 +80,21 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const { completeOnboarding } = useApp();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
+  // Drives the crossfade between each slide's background.
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: currentIndex,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [currentIndex, progress]);
 
   const handleNext = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (currentIndex < SLIDES.length - 1) {
-      const nextIndex = currentIndex + 1;
-      flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-      setCurrentIndex(nextIndex);
+      setCurrentIndex(currentIndex + 1); // drives both the slide + background crossfade
     } else {
       await completeOnboarding();
       router.replace('/(auth)/signup');
@@ -65,8 +106,8 @@ export default function OnboardingScreen() {
     router.replace('/(auth)/login');
   };
 
-  const renderSlide = ({ item }: { item: typeof SLIDES[0] }) => (
-    <View style={[styles.slide, { width }]}>
+  const renderSlide = (item: typeof SLIDES[0]) => (
+    <View style={styles.slide}>
       <View style={styles.textContent}>
         <View style={styles.tagPill}>
           <Text style={styles.tagText}>{item.tag}</Text>
@@ -89,18 +130,50 @@ export default function OnboardingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Full-screen atmospheric welcome background — anchored so the rider
-          and motorbike stay in frame, with the text overlaid on a darker
-          lower third. */}
-      <Image
-        source={require('@/assets/images/onboarding-hero.png')}
-        style={styles.heroBg}
-        resizeMode="cover"
-      />
+      {/* Per-slide premium backgrounds, crossfaded as you advance. Each slide
+          gets its own atmosphere (hero photo, then coloured gradient + glow). */}
+      {SLIDES.map((item, i) => {
+        const opacity = progress.interpolate({
+          inputRange: [i - 1, i, i + 1],
+          outputRange: [0, 1, 0],
+          extrapolate: 'clamp',
+        });
+        return (
+          <Animated.View
+            key={item.id}
+            style={[StyleSheet.absoluteFill, { opacity }]}
+            pointerEvents="none"
+          >
+            {item.bg.image ? (
+              <Image
+                source={item.bg.image}
+                style={[styles.heroBg, item.bg.imageStyle]}
+                resizeMode="cover"
+              />
+            ) : (
+              <LinearGradient
+                colors={item.bg.colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
+            {/* Corner glow for depth */}
+            <LinearGradient
+              colors={[item.bg.glow, 'transparent']}
+              start={{ x: 1, y: 0 }}
+              end={{ x: 0.15, y: 0.65 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        );
+      })}
+      {/* Shared bottom scrim so the text stays legible on every background. */}
       <LinearGradient
         colors={['rgba(9,9,11,0.5)', 'rgba(9,9,11,0.15)', 'rgba(9,9,11,0.75)', 'rgba(9,9,11,0.98)']}
         locations={[0, 0.4, 0.72, 0.92]}
         style={StyleSheet.absoluteFill}
+        pointerEvents="none"
       />
 
       {/* Header */}
@@ -114,18 +187,9 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Slides — text sits over the lower third of the photo */}
-      <FlatList
-        ref={flatListRef}
-        data={SLIDES}
-        renderItem={renderSlide}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEnabled={false}
-        style={styles.flatList}
-      />
+      {/* Current slide — text sits over the lower third of the screen. Only the
+          active slide is rendered; the background crossfade animates the change. */}
+      <View style={styles.flatList}>{renderSlide(SLIDES[currentIndex])}</View>
 
       {/* Bottom */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>

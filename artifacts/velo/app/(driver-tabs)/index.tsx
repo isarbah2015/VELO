@@ -18,6 +18,7 @@ import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide } from '@/services/driver';
 import { notifyLocal } from '@/services/notifications';
+import { tierProgress, tierCanServe } from '@/services/tiers';
 
 const { width, height } = Dimensions.get('window');
 
@@ -35,6 +36,7 @@ export default function DriverHomeScreen() {
   const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   const online = driverStatus?.online ?? false;
+  const tp = tierProgress(driverStatus?.totalRides ?? 0, driverStatus?.rating ?? 5);
   const router = useRouter();
   const seenIds = useRef<Set<string>>(new Set());
 
@@ -92,7 +94,9 @@ export default function DriverHomeScreen() {
     }
   };
 
-  const incoming = online ? requests[0] : undefined;
+  // Only surface requests this driver's tier is allowed to serve (a Standard
+  // driver won't get Premium/Bossu rides until promoted).
+  const incoming = online ? requests.find((r) => tierCanServe(tp.tier, r.type)) : undefined;
 
   return (
     <View style={styles.container}>
@@ -118,6 +122,26 @@ export default function DriverHomeScreen() {
           <View style={styles.metricDivider} />
           <Ionicons name="star" size={13} color="#FFD000" />
           <Text style={styles.metricText}>{(driverStatus?.rating ?? 5).toFixed(1)}</Text>
+        </View>
+      </View>
+
+      {/* Driver tier + promotion progress */}
+      <View style={[styles.tierWrap, { top: topPad + 56 }]}>
+        <View style={styles.tierPill}>
+          <Ionicons name={tp.tier === 'bossu' ? 'flash' : tp.tier === 'premium' ? 'shield-checkmark' : 'bicycle'} size={14} color="#FFD000" />
+          <Text style={styles.tierName}>{tp.current.label}</Text>
+          {tp.next ? (
+            <>
+              <View style={styles.tierBarTrack}>
+                <View style={[styles.tierBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
+              </View>
+              <Text style={styles.tierNext} numberOfLines={1}>
+                {tp.ridesToNext > 0 ? `${tp.ridesToNext} rides` : 'keep rating'}{tp.ratingNeeded ? ` + ${tp.ratingNeeded}★` : ''} → {tp.next.label}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.tierNext}>Top tier 🎉</Text>
+          )}
         </View>
       </View>
 
@@ -196,6 +220,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     zIndex: 10,
   },
+  tierWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 10,
+    alignItems: 'flex-start',
+  },
+  tierPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    maxWidth: '100%',
+    backgroundColor: 'rgba(9,9,11,0.72)',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  tierName: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  tierBarTrack: {
+    width: 46,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+  },
+  tierBarFill: { height: '100%', backgroundColor: '#FFD000', borderRadius: 2 },
+  tierNext: { color: '#A1A1AA', fontSize: 11, fontWeight: '600', flexShrink: 1 },
   greetChip: {
     flexDirection: 'row',
     alignItems: 'center',

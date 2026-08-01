@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   Image,
+  Linking,
   Modal,
   Platform,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   ActivityIndicator,
@@ -13,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import CityMap from '@/components/CityMap';
+import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchRide } from '@/services/rides';
 import { useRouter } from 'expo-router';
@@ -24,7 +28,7 @@ const { width, height } = Dimensions.get('window');
 const SERVICES = [
   { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵2.50/km' },
   { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵4.00/km' },
-  { id: 'group', label: 'Group', icon: 'people' as const, price: '₵3.50/km' },
+  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵5.00/km' },
 ];
 
 const BIKES = [
@@ -50,7 +54,26 @@ const BIKES = [
     rating: 4.9,
     photo: require('@/assets/images/bike-premium.png'),
   },
+  {
+    id: 'bossu',
+    name: 'Okada Bossu',
+    type: 'Top-tier rider',
+    price: '₵35.00',
+    period: 'per hour',
+    seats: 1,
+    eta: '6 min',
+    rating: 5.0,
+    photo: require('@/assets/images/bike-premium.png'),
+  },
 ];
+
+// Bike id → the ride tier stored on the request. Premium/Bossu are the
+// higher tiers a driver earns access to (see services/tiers.ts).
+const rideTypeFor = (id: string): Ride['type'] =>
+  id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
+
+// Flat demo fare per tier (until distance-based pricing lands).
+const fareFor = (id: string): number => (id === 'bossu' ? 85 : id === 'premium' ? 68 : 42);
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 
@@ -60,7 +83,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
+  const [pickup, setPickup] = useState('Accra Mall, East Legon');
   const [destination, setDestination] = useState('Osu Oxford Street');
+  const [editLocations, setEditLocations] = useState(false);
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
@@ -76,15 +101,27 @@ export default function HomeScreen() {
     setBookingState('confirm');
   };
 
-  const handleConfirmRide = async () => {
+  const handleConfirmRide = async (scheduledFor?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setBookingState('searching');
-    const rideId = await requestRide({
-      from: 'Accra Mall, East Legon',
+    const base = {
+      from: pickup,
       to: destination,
-      type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
-      price: 42,
-    });
+      type: rideTypeFor(selectedBike.id),
+      price: fareFor(selectedBike.id),
+    };
+
+    // Scheduled rides are created for later — no live search now. They land
+    // in the request pool at their time and show in the rider's trips list.
+    if (scheduledFor) {
+      await requestRide({ ...base, scheduledFor });
+      setBookingState('idle');
+      const when = new Date(scheduledFor).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+      Alert.alert('Ride scheduled', `Your ${base.type} ride is booked for ${when}. We'll match a driver then.`);
+      return;
+    }
+
+    setBookingState('searching');
+    const rideId = await requestRide(base);
     setActiveRideId(rideId);
     unwatchRef.current = watchRide(rideId, (ride) => {
       if (ride?.driverId) {
@@ -114,12 +151,13 @@ export default function HomeScreen() {
       pathname: '/tracking',
       params: {
         rideId: activeRideId ?? '',
-        from: 'Accra Mall, East Legon',
+        from: pickup,
         to: destination,
-        type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
-        price: '42',
+        type: rideTypeFor(selectedBike.id),
+        price: String(fareFor(selectedBike.id)),
         driverName: matchedRide?.driverName ?? 'Your VELO driver',
-        driverRating: '4.8',
+        driverRating: String(matchedRide?.driverRating ?? '4.8'),
+        driverPhone: matchedRide?.driverPhone ?? '',
       },
     });
   };
@@ -128,16 +166,16 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Full-page stylized city map background */}
+      {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <CityMap width={width} height={height} showRoute />
+        <LiveMap width={width} height={height} mode="route" />
       </View>
 
       {/* Top floating: location pill + bell (no greeting) */}
       <View style={[styles.topBar, { top: insets.top + (isWeb ? 14 : 6) }]}>
-        <TouchableOpacity style={styles.locPill} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.locPill} activeOpacity={0.85} onPress={() => setEditLocations(true)}>
           <Ionicons name="location" size={15} color="#FFD000" />
-          <Text style={styles.locPillText} numberOfLines={1}>Accra Mall, East Legon</Text>
+          <Text style={styles.locPillText} numberOfLines={1}>{pickup}</Text>
           <Ionicons name="chevron-down" size={15} color="#71717A" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.bell}>
@@ -150,12 +188,12 @@ export default function HomeScreen() {
       <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
         <View style={styles.sheetHandle} />
 
-        <TouchableOpacity style={styles.searchBar} activeOpacity={0.85} onPress={handleBookNow}>
+        <TouchableOpacity style={styles.searchBar} activeOpacity={0.85} onPress={() => setEditLocations(true)}>
           <View style={styles.searchIcon}>
             <Ionicons name="search" size={16} color="#000000" />
           </View>
           <Text style={styles.searchText} numberOfLines={1}>{destination}</Text>
-          <Ionicons name="chevron-forward" size={18} color="#52525B" />
+          <Ionicons name="pencil" size={16} color="#52525B" />
         </TouchableOpacity>
 
         <View style={styles.chipsRow}>
@@ -202,6 +240,15 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Edit pickup + destination */}
+      <LocationEditModal
+        visible={editLocations}
+        pickup={pickup}
+        destination={destination}
+        onSave={(p, d) => { setPickup(p); setDestination(d); setEditLocations(false); }}
+        onClose={() => setEditLocations(false)}
+      />
+
       {/* Booking Modal */}
       <Modal
         visible={bookingState !== 'idle'}
@@ -214,6 +261,7 @@ export default function HomeScreen() {
             {bookingState === 'confirm' && (
               <ConfirmView
                 bike={selectedBike}
+                pickup={pickup}
                 destination={destination}
                 onConfirm={handleConfirmRide}
                 onCancel={() => setBookingState('idle')}
@@ -221,7 +269,22 @@ export default function HomeScreen() {
             )}
             {bookingState === 'searching' && <SearchingView />}
             {bookingState === 'found' && (
-              <FoundView driverName={matchedRide?.driverName ?? 'Your VELO driver'} onClose={handleCloseBooking} onTrackRide={handleTrackRide} />
+              <FoundView
+                driverName={matchedRide?.driverName ?? 'Your VELO driver'}
+                driverPhone={matchedRide?.driverPhone}
+                rideId={activeRideId}
+                pickup={pickup}
+                destination={destination}
+                onClose={handleCloseBooking}
+                onTrackRide={handleTrackRide}
+                onMessage={() => {
+                  setBookingState('idle');
+                  router.push({
+                    pathname: '/chat',
+                    params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
+                  });
+                }}
+              />
             )}
           </View>
         </View>
@@ -230,17 +293,98 @@ export default function HomeScreen() {
   );
 }
 
+function LocationEditModal({
+  visible,
+  pickup,
+  destination,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  pickup: string;
+  destination: string;
+  onSave: (pickup: string, destination: string) => void;
+  onClose: () => void;
+}) {
+  const [p, setP] = useState(pickup);
+  const [d, setD] = useState(destination);
+
+  // Re-sync fields whenever the sheet reopens with the current values.
+  useEffect(() => {
+    if (visible) { setP(pickup); setD(destination); }
+  }, [visible, pickup, destination]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalSheet, { gap: 16 }]}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Set your route</Text>
+
+          <View style={styles.locField}>
+            <View style={[styles.routeDot, { width: 10, height: 10 }]} />
+            <TextInput
+              style={styles.locInput}
+              value={p}
+              onChangeText={setP}
+              placeholder="Pickup location"
+              placeholderTextColor="#52525B"
+              returnKeyType="next"
+            />
+          </View>
+          <View style={styles.locField}>
+            <View style={[styles.routeDot, styles.routeDotRed, { width: 10, height: 10 }]} />
+            <TextInput
+              style={styles.locInput}
+              value={d}
+              onChangeText={setD}
+              placeholder="Where to?"
+              placeholderTextColor="#52525B"
+              returnKeyType="done"
+              onSubmitEditing={() => p.trim() && d.trim() && onSave(p.trim(), d.trim())}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.bookNowBtn, (!p.trim() || !d.trim()) && { opacity: 0.5 }]}
+            disabled={!p.trim() || !d.trim()}
+            onPress={() => onSave(p.trim(), d.trim())}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.bookNowText}>Save route</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const SCHEDULE_OPTIONS: { label: string; minutes: number }[] = [
+  { label: 'Now', minutes: 0 },
+  { label: '+30m', minutes: 30 },
+  { label: '+1h', minutes: 60 },
+  { label: '+2h', minutes: 120 },
+];
+
 function ConfirmView({
   bike,
+  pickup,
   destination,
   onConfirm,
   onCancel,
 }: {
   bike: typeof BIKES[0];
+  pickup: string;
   destination: string;
-  onConfirm: () => void;
+  onConfirm: (scheduledFor?: string) => void;
   onCancel: () => void;
 }) {
+  const [scheduleMin, setScheduleMin] = useState(0);
+  const scheduled = scheduleMin > 0;
+
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.sheetHandle} />
@@ -249,12 +393,32 @@ function ConfirmView({
       <View style={styles.confirmRoute}>
         <View style={styles.confirmRouteRow}>
           <View style={[styles.routeDot, { width: 10, height: 10 }]} />
-          <Text style={styles.confirmRouteText} numberOfLines={1}>Accra Mall, East Legon</Text>
+          <Text style={styles.confirmRouteText} numberOfLines={1}>{pickup}</Text>
         </View>
         <View style={styles.confirmRouteConnector} />
         <View style={styles.confirmRouteRow}>
           <View style={[styles.routeDot, styles.routeDotRed, { width: 10, height: 10 }]} />
           <Text style={styles.confirmRouteText} numberOfLines={1}>{destination}</Text>
+        </View>
+      </View>
+
+      {/* Schedule for later */}
+      <View style={{ gap: 10 }}>
+        <Text style={styles.scheduleLabel}>When</Text>
+        <View style={styles.scheduleRow}>
+          {SCHEDULE_OPTIONS.map((o) => {
+            const active = scheduleMin === o.minutes;
+            return (
+              <TouchableOpacity
+                key={o.label}
+                style={[styles.scheduleChip, active && styles.scheduleChipActive]}
+                onPress={() => { Haptics.selectionAsync(); setScheduleMin(o.minutes); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.scheduleChipText, active && styles.scheduleChipTextActive]}>{o.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -265,7 +429,7 @@ function ConfirmView({
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Est. Fare</Text>
-          <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵42.00</Text>
+          <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵{fareFor(bike.id).toFixed(2)}</Text>
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Driver ETA</Text>
@@ -277,8 +441,12 @@ function ConfirmView({
         </View>
       </View>
 
-      <TouchableOpacity style={styles.bookNowBtn} onPress={onConfirm} activeOpacity={0.85}>
-        <Text style={styles.bookNowText}>Confirm Ride</Text>
+      <TouchableOpacity
+        style={styles.bookNowBtn}
+        onPress={() => onConfirm(scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined)}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.bookNowText}>{scheduled ? 'Schedule Ride' : 'Confirm Ride'}</Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
         <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -298,7 +466,40 @@ function SearchingView() {
   );
 }
 
-function FoundView({ driverName, onClose, onTrackRide }: { driverName: string; onClose: () => void; onTrackRide: () => void }) {
+function FoundView({
+  driverName,
+  driverPhone,
+  rideId,
+  pickup,
+  destination,
+  onClose,
+  onTrackRide,
+  onMessage,
+}: {
+  driverName: string;
+  driverPhone?: string | null;
+  rideId?: string | null;
+  pickup: string;
+  destination: string;
+  onClose: () => void;
+  onTrackRide: () => void;
+  onMessage: () => void;
+}) {
+  const handleCall = () => {
+    const num = (driverPhone || '').replace(/\s/g, '');
+    if (!num) {
+      Alert.alert('No number yet', "Your driver's phone number isn't available yet.");
+      return;
+    }
+    Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot place call', 'Calling is not available on this device.'));
+  };
+
+  const handleShare = () => {
+    Share.share({
+      message: `I'm on a VELO ride with ${driverName} from ${pickup} to ${destination}. Track me on VELO.`,
+    }).catch(() => {});
+  };
+
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.sheetHandle} />
@@ -331,15 +532,15 @@ function FoundView({ driverName, onClose, onTrackRide }: { driverName: string; o
       </View>
 
       <View style={styles.contactRow}>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={handleCall} activeOpacity={0.8}>
           <Ionicons name="call-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Call</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onMessage} activeOpacity={0.8}>
           <Ionicons name="chatbubble-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Message</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-social-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Share</Text>
         </TouchableOpacity>
@@ -359,6 +560,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#09090B',
+  },
+  scheduleLabel: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  scheduleChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    backgroundColor: '#18181B',
+  },
+  scheduleChipActive: {
+    borderColor: '#FFD000',
+    backgroundColor: 'rgba(255,208,0,0.12)',
+  },
+  scheduleChipText: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scheduleChipTextActive: {
+    color: '#FFD000',
   },
   topBar: {
     position: 'absolute',
@@ -638,6 +869,23 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     fontSize: 15,
     color: '#71717A',
+  },
+  locField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 54,
+  },
+  locInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    height: '100%',
   },
   foundHeader: {
     flexDirection: 'row',

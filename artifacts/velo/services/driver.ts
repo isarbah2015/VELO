@@ -5,6 +5,7 @@ import { updateRideStatus } from './rides';
 export interface DriverStatus {
   online: boolean;
   ridesToday: number;
+  totalRides: number; // lifetime completed rides — drives tier promotion
   todayEarnings: number;
   weeklyEarnings: number[];
   rating: number;
@@ -18,7 +19,9 @@ export async function setOnlineStatus(uid: string, online: boolean) {
 
 export async function getDriverStatus(uid: string): Promise<DriverStatus | null> {
   const snap = await getDoc(doc(db, 'drivers', uid));
-  return snap.exists() ? (snap.data() as DriverStatus) : null;
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return { totalRides: 0, ...data } as DriverStatus; // default for older docs
 }
 
 export async function acceptRide(rideId: string, driverId: string, driverName: string) {
@@ -47,6 +50,7 @@ export async function recordCompletedRide(driverId: string, fare: number) {
     tx.update(ref, {
       todayEarnings: (data.todayEarnings ?? 0) + fare,
       ridesToday: (data.ridesToday ?? 0) + 1,
+      totalRides: (data.totalRides ?? 0) + 1,
       weeklyEarnings: weekly,
       updatedAt: serverTimestamp(),
     });

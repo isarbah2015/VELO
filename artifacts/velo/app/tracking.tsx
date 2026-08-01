@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Linking,
   Platform,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -43,15 +45,17 @@ export default function TrackingScreen() {
     price: string;
     driverName: string;
     driverRating: string;
+    driverPhone: string;
   }>();
   const rideId = params.rideId;
 
   const from = params.from ?? 'Accra Mall, East Legon';
   const to = params.to ?? 'Osu Oxford Street';
-  const rideType = (params.type ?? 'Standard') as 'Standard' | 'Premium' | 'Group';
+  const rideType = (params.type ?? 'Standard') as 'Standard' | 'Premium' | 'Bossu';
   const price = parseFloat(params.price ?? '42');
   const driverName = params.driverName ?? 'Kofi M.';
   const driverRating = parseFloat(params.driverRating ?? '4.8');
+  const driverPhone = params.driverPhone ?? '';
 
   const [phase, setPhase] = useState<Phase>('arriving');
   const [etaSeconds, setEtaSeconds] = useState(240); // 4:00
@@ -252,6 +256,14 @@ export default function TrackingScreen() {
             driverRating={driverRating}
             onCancel={handleCancel}
             onMessage={() => rideId && router.push({ pathname: '/chat', params: { rideId, otherName: driverName } })}
+            onCall={() => {
+              const num = driverPhone.replace(/\s/g, '');
+              if (!num) { Alert.alert('No number yet', "Your driver's phone number isn't available yet."); return; }
+              Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot place call', 'Calling is not available on this device.'));
+            }}
+            onShare={() => {
+              Share.share({ message: `I'm on a VELO ride with ${driverName} from ${from} to ${to}. Track me on VELO.` }).catch(() => {});
+            }}
           />
         )}
 
@@ -388,10 +400,10 @@ function TrackingMap({
 }
 
 function ArrivingPanel({
-  etaSeconds, driverName, driverRating, onCancel, onMessage,
+  etaSeconds, driverName, driverRating, onCancel, onMessage, onCall, onShare,
 }: {
   etaSeconds: number; driverName: string; driverRating: number;
-  onCancel: () => void; onMessage: () => void;
+  onCancel: () => void; onMessage: () => void; onCall: () => void; onShare: () => void;
 }) {
   return (
     <View style={styles.panel}>
@@ -430,15 +442,15 @@ function ArrivingPanel({
       </View>
 
       <View style={styles.contactRow}>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onCall} activeOpacity={0.8}>
           <Ionicons name="call-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Call</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn} onPress={onMessage}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onMessage} activeOpacity={0.8}>
           <Ionicons name="chatbubble-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Message</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onShare} activeOpacity={0.8}>
           <Ionicons name="share-social-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Share</Text>
         </TouchableOpacity>

@@ -60,6 +60,25 @@ export async function login(phone: string, password: string) {
   return cred.user;
 }
 
+// Google sign-in returns a Firebase user with no VELO profile on first login.
+// Provision one lazily (real Google email, no phone yet) so the rest of the
+// app — which assumes a users/{uid} doc — works unchanged.
+export async function ensureGoogleProfile(user: FirebaseUser): Promise<void> {
+  const ref = doc(db, 'users', user.uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return;
+  const name = user.displayName || user.email?.split('@')[0] || 'VELO Rider';
+  await setDoc(ref, {
+    name,
+    phone: '',
+    email: user.email ?? '',
+    role: 'rider',
+    walletBalance: 0,
+    referralCode: makeReferralCode(name, user.uid),
+    createdAt: serverTimestamp(),
+  });
+}
+
 export function logout() {
   return signOut(auth);
 }
