@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Dimensions, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -10,6 +11,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
+import { distanceKm, etaMinutes } from '@/services/geo';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
 
@@ -146,6 +148,32 @@ export default function DriverTripScreen() {
   const statusLine =
     phase === 'toPickup' ? 'Head to pickup' : phase === 'arrived' ? 'Waiting for rider' : 'Trip in progress';
 
+  // Live distance + ETA to the current navigation target: the rider (while
+  // heading to pickup) or the destination (once the trip is underway).
+  const target: LngLat | null =
+    phase === 'inProgress' ? destLL ?? null : riderPos ?? pickupLL ?? null;
+  // Seed an origin a few km from pickup so the ETA reads believably when the
+  // simulator/device isn't giving a nearby GPS fix; prefer real GPS when close.
+  const seeded: LngLat | null = pickupLL ? [pickupLL[0] + 0.03, pickupLL[1] + 0.028] : null;
+  let origin: LngLat | null = seeded;
+  if (driverPos && target && distanceKm(driverPos, target) < 35) origin = driverPos;
+  const distKm = origin && target ? distanceKm(origin, target) : null;
+  const etaMin = distKm != null ? etaMinutes(distKm) : null;
+  const targetLabel = phase === 'inProgress' ? 'to destination' : `to ${riderName.split(' ')[0]}`;
+
+  // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
+  const enter = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(enter, { toValue: 1, useNativeDriver: true, friction: 7, tension: 60 }).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [enter, pulse]);
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -164,12 +192,39 @@ export default function DriverTripScreen() {
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
 
-      {/* Header pill + SOS */}
+      {/* Header: compact live ETA card + SOS */}
       <View style={[styles.header, { top: topPad }]}>
-        <View style={styles.livePill}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>{statusLine}</Text>
-        </View>
+        {etaMin != null && distKm != null ? (
+          <Animated.View
+            style={[
+              styles.etaCard,
+              { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) }] },
+            ]}
+          >
+            <LinearGradient
+              colors={phase === 'inProgress' ? ['#22C55E', '#16A34A'] : ['#FFD000', '#FFA800']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.etaIcon}
+            >
+              <Ionicons name={phase === 'inProgress' ? 'flag' : 'navigate'} size={15} color="#000" />
+            </LinearGradient>
+            <View>
+              <Text style={styles.etaBig}>
+                {etaMin} min <Text style={styles.etaKm}>· {distKm.toFixed(1)} km</Text>
+              </Text>
+              <View style={styles.etaSubRow}>
+                <Animated.View style={[styles.livePulse, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] }) }]} />
+                <Text style={styles.etaSub} numberOfLines={1}>{statusLine} · {targetLabel}</Text>
+              </View>
+            </View>
+          </Animated.View>
+        ) : (
+          <View style={styles.livePill}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>{statusLine}</Text>
+          </View>
+        )}
         <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
           <Ionicons name="alert-circle" size={22} color="#EF4444" />
         </TouchableOpacity>
@@ -235,6 +290,19 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' },
   liveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  // Compact premium ETA card
+  etaCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(19,19,22,0.94)', borderWidth: 1, borderColor: '#2A2A2D',
+    paddingLeft: 8, paddingRight: 16, paddingVertical: 8, borderRadius: 18,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 10,
+  },
+  etaIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  etaBig: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  etaKm: { color: '#A1A1AA', fontSize: 13, fontWeight: '600' },
+  etaSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
+  etaSub: { color: '#71717A', fontSize: 11, fontWeight: '600' },
   card: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     backgroundColor: '#131316', borderTopLeftRadius: 28, borderTopRightRadius: 28,
