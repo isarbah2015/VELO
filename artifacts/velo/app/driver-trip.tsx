@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,10 +8,12 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
-import { updateDriverLocation, updateRideStatus } from '@/services/rides';
+import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
+
+type LngLat = [number, number];
 
 const { width, height } = Dimensions.get('window');
 
@@ -26,18 +28,43 @@ export default function DriverTripScreen() {
   const router = useRouter();
   const { user, refreshDriverStatus } = useApp();
   const params = useLocalSearchParams<{
-    rideId: string; riderName?: string; from?: string; to?: string; price?: string;
+    rideId: string; riderName?: string; riderPhone?: string; from?: string; to?: string; price?: string;
+    fromLat?: string; fromLng?: string; toLat?: string; toLng?: string;
   }>();
 
   const rideId = params.rideId;
   const riderName = params.riderName ?? 'Your rider';
+  const riderPhone = params.riderPhone ?? '';
   const from = params.from ?? 'Pickup';
   const to = params.to ?? 'Destination';
   const price = parseFloat(params.price ?? '0');
 
+  const toLL = (lat?: string, lng?: string): LngLat | undefined => {
+    const a = parseFloat(lat ?? ''); const o = parseFloat(lng ?? '');
+    return Number.isFinite(a) && Number.isFinite(o) ? [o, a] : undefined;
+  };
+  const pickupLL = toLL(params.fromLat, params.fromLng);
+  const destLL = toLL(params.toLat, params.toLng);
+
   const [phase, setPhase] = useState<Phase>('toPickup');
+  const [driverPos, setDriverPos] = useState<LngLat | null>(null);
+  const [riderPos, setRiderPos] = useState<LngLat | null>(null);
   const startRef = useRef(Date.now());
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+
+  // Follow the rider's live position (streamed from their tracking screen).
+  useEffect(() => {
+    if (!rideId) return;
+    return watchRide(rideId, (ride) => {
+      if (ride?.riderLoc) setRiderPos([ride.riderLoc.lng, ride.riderLoc.lat]);
+    });
+  }, [rideId]);
+
+  const handleCall = () => {
+    const num = riderPhone.replace(/\s/g, '');
+    if (!num) { Alert.alert('No number', "The rider's phone number isn't available."); return; }
+    Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot call', 'Calling is unavailable on this device.'));
+  };
 
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 12);
@@ -52,7 +79,10 @@ export default function DriverTripScreen() {
         if (status !== 'granted' || cancelled) return;
         watchRef.current = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 4000 },
-          (loc) => updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude)
+          (loc) => {
+            setDriverPos([loc.coords.longitude, loc.coords.latitude]);
+            updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude);
+          }
         );
       } catch {
         // No GPS (simulator/web) — the rider still sees status updates.
@@ -120,9 +150,17 @@ export default function DriverTripScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Full-screen live map */}
+      {/* Full-screen live map — real pickup/destination + live driver & rider */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="route" />
+        <LiveMap
+          width={width}
+          height={height}
+          mode="route"
+          pickup={pickupLL}
+          dest={destLL}
+          driver={driverPos}
+          rider={riderPos}
+        />
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
 
@@ -153,7 +191,7 @@ export default function DriverTripScreen() {
           >
             <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.callBtn}>
+          <TouchableOpacity style={styles.callBtn} onPress={handleCall} activeOpacity={0.85}>
             <Ionicons name="call" size={18} color="#000" />
           </TouchableOpacity>
         </View>

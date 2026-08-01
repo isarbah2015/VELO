@@ -17,7 +17,8 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from '@/context/AppContext';
-import { watchRide } from '@/services/rides';
+import * as Location from 'expo-location';
+import { watchRide, updateRiderLocation } from '@/services/rides';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 
 const { width, height } = Dimensions.get('window');
@@ -121,6 +122,26 @@ export default function TrackingScreen() {
   // Firestore status drives the phase — the local timer above is only the
   // fallback animation for when no real driver is connected (demo/single
   // device). Real status always wins and stops the simulation.
+  // Stream the rider's live position so the driver can find them at pickup.
+  useEffect(() => {
+    if (!rideId) return;
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, distanceInterval: 20, timeInterval: 5000 },
+          (loc) => updateRiderLocation(rideId, loc.coords.latitude, loc.coords.longitude),
+        );
+      } catch {
+        // no GPS — driver still navigates to the geocoded pickup
+      }
+    })();
+    return () => { cancelled = true; sub?.remove(); };
+  }, [rideId]);
+
   useEffect(() => {
     if (!rideId) return;
     const unsub = watchRide(rideId, (ride) => {

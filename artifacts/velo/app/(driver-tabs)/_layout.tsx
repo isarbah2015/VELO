@@ -1,8 +1,9 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 import VeloTabBar, { type TabDef } from '@/components/VeloTabBar';
+import { useApp } from '@/context/AppContext';
 
 const TAB_DEFS: TabDef[] = [
   { name: 'index', label: 'Dashboard', icon: 'grid-outline', iconActive: 'grid' },
@@ -49,6 +50,9 @@ function ClassicTabLayout() {
 }
 
 export default function DriverTabLayout() {
+  const { role } = useApp();
+  // Mirror of the rider guard — a rider must never land in the driver tabs.
+  if (role !== 'driver') return <Redirect href="/(tabs)" />;
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }

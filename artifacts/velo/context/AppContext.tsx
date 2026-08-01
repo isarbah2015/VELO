@@ -7,6 +7,7 @@ import * as paymentService from '@/services/payments';
 import * as driverService from '@/services/driver';
 import type { DriverStatus } from '@/services/driver';
 import { registerForPushNotifications } from '@/services/notifications';
+import { geocode } from '@/services/geo';
 
 export type Role = 'rider' | 'driver';
 
@@ -17,6 +18,11 @@ export interface Ride {
   driverId: string | null;
   driverName: string | null;
   driverPhone?: string | null;
+  riderPhone?: string | null;
+  fromCoord?: { lat: number; lng: number } | null;
+  toCoord?: { lat: number; lng: number } | null;
+  // Rider's live position, streamed while the driver is en route to pickup.
+  riderLoc?: { lat: number; lng: number; at: number } | null;
   from: string;
   to: string;
   type: 'Standard' | 'Premium' | 'Bossu';
@@ -204,7 +210,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => {
     if (!firebaseUser || !profile) throw new Error('Not signed in');
-    return rideService.createRide({ ...input, riderId: firebaseUser.uid, riderName: profile.name });
+    // Geocode the typed addresses so the driver's map shows the real pickup +
+    // destination (falls back to null → default coords if lookup fails).
+    const [fromLL, toLL] = await Promise.all([geocode(input.from), geocode(input.to)]);
+    return rideService.createRide({
+      ...input,
+      riderId: firebaseUser.uid,
+      riderName: profile.name,
+      riderPhone: profile.phone,
+      fromCoord: fromLL ? { lat: fromLL[1], lng: fromLL[0] } : null,
+      toCoord: toLL ? { lat: toLL[1], lng: toLL[0] } : null,
+    });
   }, [firebaseUser, profile]);
 
   const cancelRide = useCallback(async (rideId: string) => {

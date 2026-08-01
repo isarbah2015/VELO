@@ -1,8 +1,9 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 import VeloTabBar, { type TabDef } from '@/components/VeloTabBar';
+import { useApp } from '@/context/AppContext';
 
 const TAB_DEFS: TabDef[] = [
   { name: 'index', label: 'Home', icon: 'home-outline', iconActive: 'home' },
@@ -49,6 +50,11 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  const { role } = useApp();
+  // Role is the source of truth for which tab set shows. If a driver lands here
+  // (e.g. the initial redirect fired before the profile role loaded), bounce to
+  // the driver tabs.
+  if (role === 'driver') return <Redirect href="/(driver-tabs)" />;
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }

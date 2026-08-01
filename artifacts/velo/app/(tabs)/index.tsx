@@ -72,8 +72,18 @@ const BIKES = [
 const rideTypeFor = (id: string): Ride['type'] =>
   id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
 
-// Flat demo fare per tier (until distance-based pricing lands).
-const fareFor = (id: string): number => (id === 'bossu' ? 85 : id === 'premium' ? 68 : 42);
+// Distance/time-based pricing model per tier: fare = base + perKm·km + perMin·min.
+// (Estimated trip until live routing distance is wired in.)
+const RATE: Record<Ride['type'], { base: number; perKm: number; perMin: number }> = {
+  Standard: { base: 5, perKm: 2.5, perMin: 0.5 },
+  Premium: { base: 8, perKm: 4.0, perMin: 0.7 },
+  Bossu: { base: 12, perKm: 5.0, perMin: 0.9 },
+};
+const EST_KM = 6.4;
+const EST_MIN = 16;
+const estimateFare = (type: Ride['type']): number =>
+  Math.round(RATE[type].base + RATE[type].perKm * EST_KM + RATE[type].perMin * EST_MIN);
+const fareFor = (id: string): number => estimateFare(rideTypeFor(id));
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 
@@ -85,7 +95,6 @@ export default function HomeScreen() {
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
   const [pickup, setPickup] = useState('Accra Mall, East Legon');
   const [destination, setDestination] = useState('Osu Oxford Street');
-  const [editLocations, setEditLocations] = useState(false);
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
@@ -171,67 +180,79 @@ export default function HomeScreen() {
         <LiveMap width={width} height={height} mode="route" />
       </View>
 
-      {/* Top floating: location pill + bell (no greeting) */}
-      <View style={[styles.topBar, { top: insets.top + (isWeb ? 14 : 6) }]}>
-        <TouchableOpacity style={styles.locPill} activeOpacity={0.85} onPress={() => setEditLocations(true)}>
-          <Ionicons name="location" size={15} color="#FFD000" />
-          <Text style={styles.locPillText} numberOfLines={1}>{pickup}</Text>
-          <Ionicons name="chevron-down" size={15} color="#71717A" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.bell}>
-          <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
-          <View style={styles.bellDot} />
-        </TouchableOpacity>
+      {/* Floating route card — type pickup + destination directly (no modal) */}
+      <View style={[styles.routeCard, { top: insets.top + 10 }]}>
+        <View style={styles.routeRow}>
+          <View style={styles.routeDotYellow} />
+          <View style={styles.routeField}>
+            <Text style={styles.routeLabel}>Pickup location</Text>
+            <TextInput
+              style={styles.routeInput}
+              value={pickup}
+              onChangeText={setPickup}
+              placeholder="Set pickup point"
+              placeholderTextColor="#71717A"
+              returnKeyType="next"
+            />
+          </View>
+          <Ionicons name="locate" size={18} color="#FFD000" />
+        </View>
+        <View style={styles.routeDivider} />
+        <View style={styles.routeRow}>
+          <View style={styles.routeDotRedSm} />
+          <View style={styles.routeField}>
+            <Text style={styles.routeLabel}>Where to?</Text>
+            <TextInput
+              style={styles.routeInput}
+              value={destination}
+              onChangeText={setDestination}
+              placeholder="Enter destination"
+              placeholderTextColor="#71717A"
+              returnKeyType="done"
+            />
+          </View>
+        </View>
       </View>
 
-      {/* Bottom sheet — search, ride types, selected bike */}
+      {/* Bottom sheet — single VELO Standard vehicle card */}
       <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
         <View style={styles.sheetHandle} />
 
-        <TouchableOpacity style={styles.searchBar} activeOpacity={0.85} onPress={() => setEditLocations(true)}>
-          <View style={styles.searchIcon}>
-            <Ionicons name="search" size={16} color="#000000" />
+        <View style={styles.vehicleTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bikeName}>{selectedBike.name}</Text>
+            <View style={styles.fareRow}>
+              <Text style={styles.farePrice}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+              <Text style={styles.fareSub}> est. fare</Text>
+            </View>
+            <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
           </View>
-          <Text style={styles.searchText} numberOfLines={1}>{destination}</Text>
-          <Ionicons name="pencil" size={16} color="#52525B" />
-        </TouchableOpacity>
-
-        <View style={styles.chipsRow}>
-          {SERVICES.map((s) => {
-            const active = selectedService === s.id;
-            return (
-              <TouchableOpacity
-                key={s.id}
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setSelectedService(s.id);
-                  setSelectedBike(BIKES.find((b) => b.id === s.id) ?? BIKES[0]);
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{s.label}</Text>
-                <Text style={[styles.chipPrice, active && styles.chipPriceActive]}>{s.price}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          <View style={styles.vehicleIcons}>
+            <TouchableOpacity style={styles.roundIcon}>
+              <Ionicons name="heart-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.roundIcon}>
+              <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.bikeRow}>
-          <View style={styles.bikeMeta}>
-            <Text style={styles.bikeName}>{selectedBike.name}</Text>
-            <View style={styles.bikeStats}>
-              <Ionicons name="time-outline" size={13} color="#A1A1AA" />
-              <Text style={styles.bikeStatText}>{selectedBike.eta}</Text>
-              <Ionicons name="star" size={13} color="#FFD000" style={{ marginLeft: 8 }} />
-              <Text style={styles.bikeStatText}>{selectedBike.rating}</Text>
+        <View style={styles.vehicleBody}>
+          <View style={styles.vehicleChipsCol}>
+            <View style={styles.vChip}>
+              <Ionicons name="time-outline" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
             </View>
-            <View style={styles.priceRow}>
-              <Text style={styles.bikePrice}>{selectedBike.price}</Text>
-              <Text style={styles.bikePeriod}> /hr</Text>
+            <View style={styles.vChip}>
+              <Ionicons name="star" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
+            </View>
+            <View style={styles.vChip}>
+              <Ionicons name="person-outline" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>1 seat</Text>
             </View>
           </View>
-          <Image source={selectedBike.photo} style={styles.bikeImg} resizeMode="contain" />
+          <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
         </View>
 
         <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
@@ -239,15 +260,6 @@ export default function HomeScreen() {
           <Text style={styles.bookNowText}>Book {selectedBike.name}</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Edit pickup + destination */}
-      <LocationEditModal
-        visible={editLocations}
-        pickup={pickup}
-        destination={destination}
-        onSave={(p, d) => { setPickup(p); setDestination(d); setEditLocations(false); }}
-        onClose={() => setEditLocations(false)}
-      />
 
       {/* Booking Modal */}
       <Modal
@@ -290,75 +302,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
     </View>
-  );
-}
-
-function LocationEditModal({
-  visible,
-  pickup,
-  destination,
-  onSave,
-  onClose,
-}: {
-  visible: boolean;
-  pickup: string;
-  destination: string;
-  onSave: (pickup: string, destination: string) => void;
-  onClose: () => void;
-}) {
-  const [p, setP] = useState(pickup);
-  const [d, setD] = useState(destination);
-
-  // Re-sync fields whenever the sheet reopens with the current values.
-  useEffect(() => {
-    if (visible) { setP(pickup); setD(destination); }
-  }, [visible, pickup, destination]);
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalSheet, { gap: 16 }]}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Set your route</Text>
-
-          <View style={styles.locField}>
-            <View style={[styles.routeDot, { width: 10, height: 10 }]} />
-            <TextInput
-              style={styles.locInput}
-              value={p}
-              onChangeText={setP}
-              placeholder="Pickup location"
-              placeholderTextColor="#52525B"
-              returnKeyType="next"
-            />
-          </View>
-          <View style={styles.locField}>
-            <View style={[styles.routeDot, styles.routeDotRed, { width: 10, height: 10 }]} />
-            <TextInput
-              style={styles.locInput}
-              value={d}
-              onChangeText={setD}
-              placeholder="Where to?"
-              placeholderTextColor="#52525B"
-              returnKeyType="done"
-              onSubmitEditing={() => p.trim() && d.trim() && onSave(p.trim(), d.trim())}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.bookNowBtn, (!p.trim() || !d.trim()) && { opacity: 0.5 }]}
-            disabled={!p.trim() || !d.trim()}
-            onPress={() => onSave(p.trim(), d.trim())}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.bookNowText}>Save route</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-            <Text style={styles.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -757,6 +700,81 @@ const styles = StyleSheet.create({
   bikeImg: {
     width: 158,
     height: 104,
+  },
+  // Floating route card (inline editable pickup + destination)
+  routeCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(19,19,22,0.96)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 12,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  routeDotYellow: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#FFD000' },
+  routeDotRedSm: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#EF4444' },
+  routeField: { flex: 1 },
+  routeLabel: { fontSize: 11, color: '#71717A', fontWeight: '600', marginBottom: 1 },
+  routeInput: { fontSize: 15, color: '#FFFFFF', fontWeight: '600', padding: 0 },
+  routeDivider: { height: 1, backgroundColor: '#27272A', marginLeft: 23 },
+  // Single vehicle card
+  vehicleTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  fareRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
+  fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
+  fareFormula: { fontSize: 11, color: '#71717A', marginTop: 2 },
+  vehicleIcons: { flexDirection: 'row', gap: 8 },
+  roundIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  vehicleChipsCol: { gap: 8 },
+  vChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+  },
+  vChipText: { fontSize: 13, color: '#E4E4E7', fontWeight: '600' },
+  vehicleImg: {
+    width: 235,
+    height: 150,
+    marginRight: -18,
   },
   routeDot: {
     width: 12,

@@ -10,14 +10,20 @@ const ridesCol = collection(db, 'rides');
 export async function createRide(input: {
   riderId: string;
   riderName: string;
+  riderPhone?: string;
   from: string;
   to: string;
+  fromCoord?: { lat: number; lng: number } | null;
+  toCoord?: { lat: number; lng: number } | null;
   type: Ride['type'];
   price: number;
   scheduledFor?: string;
 }): Promise<string> {
   const ref = await addDoc(ridesCol, {
     ...input,
+    riderPhone: input.riderPhone ?? null,
+    fromCoord: input.fromCoord ?? null,
+    toCoord: input.toCoord ?? null,
     scheduledFor: input.scheduledFor ?? null,
     driverId: null,
     driverName: null,
@@ -27,6 +33,12 @@ export async function createRide(input: {
     status: 'requested' as Ride['status'],
   });
   return ref.id;
+}
+
+// The rider streams their own position during pickup so the driver can see
+// exactly where to meet them (mirrors updateDriverLocation the other way).
+export async function updateRiderLocation(rideId: string, lat: number, lng: number) {
+  await updateDoc(doc(db, 'rides', rideId), { riderLoc: { lat, lng, at: Date.now() } });
 }
 
 export function watchRide(rideId: string, callback: (ride: Ride | null) => void): Unsubscribe {

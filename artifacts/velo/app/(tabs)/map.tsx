@@ -1,10 +1,11 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
-import { Camera, Map, Marker, UserLocation, type CameraRef } from '@maplibre/maplibre-react-native';
-import * as Location from 'expo-location';
+import React from 'react';
+import { View, StyleSheet, Text, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import LiveMap from '@/components/LiveMap';
+
+const { width, height } = Dimensions.get('window');
 
 const COLORS = {
   bg: '#09090B',
@@ -15,86 +16,30 @@ const COLORS = {
   border: '#27272A',
 };
 
-const DEFAULT_CENTER: [number, number] = [-0.1870, 5.6037];
-
-// YOUR VELO DARK STYLE
-const MAP_STYLE = 'https://api.maptiler.com/maps/019fb72b-da2a-7737-bf82-300a0176ecaa/style.json?key=dac69jMnq2JsIOwiXh9p';
-
-// MapLibre needs no access token (styles carry their own keys).
-
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const cameraRef = useRef<CameraRef>(null);
-  const [loading, setLoading] = useState(true);
 
-  const nearbyDrivers: { id: string; coords: [number, number]; name: string }[] = [
-    { id: 'd1', coords: [-0.1850, 5.6050], name: 'Kwame' },
-    { id: 'd2', coords: [-0.1890, 5.6020], name: 'Ama' },
-    { id: 'd3', coords: [-0.1820, 5.6080], name: 'Kofi' },
+  const nearbyDrivers = [
+    { id: 'd1', name: 'Kwame' },
+    { id: 'd2', name: 'Ama' },
+    { id: 'd3', name: 'Kofi' },
   ];
-
-  const onMapLoad = useCallback(() => setLoading(false), []);
-
-  // Center on the rider's live position (via expo-location, which the app
-  // already uses elsewhere), falling back to Accra if permission is denied.
-  const zoomToUser = useCallback(async () => {
-    let target: [number, number] = DEFAULT_CENTER as [number, number];
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const pos = await Location.getCurrentPositionAsync({});
-        target = [pos.coords.longitude, pos.coords.latitude];
-      }
-    } catch {
-      // keep the default center
-    }
-    cameraRef.current?.flyTo({ center: target, zoom: 15, duration: 1000 });
-  }, []);
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Full-screen map */}
-      <Map
-        style={StyleSheet.absoluteFill}
-        mapStyle={MAP_STYLE}
-        logo={false}
-        attribution={true}
-        onDidFinishLoadingMap={onMapLoad}
-      >
-        <Camera
-          ref={cameraRef}
-          initialViewState={{ center: DEFAULT_CENTER, zoom: 13 }}
-        />
-
-        <UserLocation />
-
-        {nearbyDrivers.map((d) => (
-          <Marker key={d.id} id={d.id} lngLat={d.coords}>
-            <View style={styles.markerContainer}>
-              <View style={styles.markerDot}>
-                <Ionicons name="bicycle" size={14} color={COLORS.bg} />
-              </View>
-              <View style={styles.markerPulse} />
-            </View>
-          </Marker>
-        ))}
-      </Map>
-
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading map...</Text>
-        </View>
-      )}
+      {/* Full-screen map — same LiveMap component the home + driver screens use */}
+      <View style={StyleSheet.absoluteFill}>
+        <LiveMap width={width} height={height} mode="nearby" />
+      </View>
 
       {/* Floating header over the map */}
       <View style={[styles.header, { top: insets.top + 8 }]}>
         <Text style={styles.headerTitle}>Live Map</Text>
-        <TouchableOpacity style={styles.headerBtn} onPress={zoomToUser}>
-          <Ionicons name="locate" size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerBtn}>
+          <Ionicons name="bicycle" size={18} color={COLORS.primary} />
+        </View>
       </View>
 
       {/* Floating bottom sheet over the map (clears the tab bar) */}

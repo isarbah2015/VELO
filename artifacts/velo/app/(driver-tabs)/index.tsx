@@ -87,7 +87,18 @@ export default function DriverHomeScreen() {
       // not on accept, so earnings match real finished trips.
       router.push({
         pathname: '/driver-trip',
-        params: { rideId: ride.id, riderName: ride.riderName, from: ride.from, to: ride.to, price: String(ride.price) },
+        params: {
+          rideId: ride.id,
+          riderName: ride.riderName,
+          riderPhone: ride.riderPhone ?? '',
+          from: ride.from,
+          to: ride.to,
+          price: String(ride.price),
+          fromLat: String(ride.fromCoord?.lat ?? ''),
+          fromLng: String(ride.fromCoord?.lng ?? ''),
+          toLat: String(ride.toCoord?.lat ?? ''),
+          toLng: String(ride.toCoord?.lng ?? ''),
+        },
       });
     } else {
       await declineRide(ride.id);
