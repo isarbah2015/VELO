@@ -22,6 +22,33 @@ const NEARBY: [number, number][] = [
 const MAP_STYLE =
   'https://api.maptiler.com/maps/019fb72b-da2a-7737-bf82-300a0176ecaa/style.json?key=dac69jMnq2JsIOwiXh9p';
 
+// A distraction-free variant of the branded style with POI labels/icons hidden
+// (shops, landmarks, etc.) for the in-trip driver view — like Uber/Yandex nav.
+// The style JSON is fetched once and cached; road and place names are kept so
+// the driver still has orientation. Falls back to the plain URL on any failure.
+let poiFreeStyle: string | null = null;
+let poiFreePromise: Promise<string | null> | null = null;
+function loadPoiFreeStyle(): Promise<string | null> {
+  if (poiFreeStyle) return Promise.resolve(poiFreeStyle);
+  if (poiFreePromise) return poiFreePromise;
+  poiFreePromise = fetch(MAP_STYLE)
+    .then((r) => r.json())
+    .then((style: any) => {
+      if (!Array.isArray(style?.layers)) return null;
+      for (const layer of style.layers) {
+        const id = String(layer.id ?? '');
+        const src = String(layer['source-layer'] ?? '');
+        if (layer.type === 'symbol' && (/poi/i.test(id) || /poi/i.test(src))) {
+          layer.layout = { ...(layer.layout ?? {}), visibility: 'none' };
+        }
+      }
+      poiFreeStyle = JSON.stringify(style);
+      return poiFreeStyle;
+    })
+    .catch(() => null);
+  return poiFreePromise;
+}
+
 // Demand hot-zones around Accra ([lng, lat, intensity 0..1]) — where riders are
 // requesting most, à la Yandex Pro's surge heatmap. Higher intensity = larger,
 // hotter (purple→red) blob.
@@ -93,6 +120,7 @@ export default function LiveMap({
   showDemand,
   follow,
   navMarker,
+  hidePoi,
 }: {
   width: number;
   height: number;
@@ -106,15 +134,26 @@ export default function LiveMap({
   showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
   follow?: boolean; // turn-by-turn camera that follows the driver with heading
   navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
+  hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
 }) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
   const center: [number, number] =
     mode === 'route' ? (driver ?? [(p[0] + d[0]) / 2, (p[1] + d[1]) / 2]) : ACCRA;
 
+  // When asked to hide POIs, swap in the fetched POI-free style once it resolves
+  // (until then, the plain style renders so the map never blanks out).
+  const [mapStyle, setMapStyle] = React.useState<string>(MAP_STYLE);
+  React.useEffect(() => {
+    if (!hidePoi) { setMapStyle(MAP_STYLE); return; }
+    let alive = true;
+    loadPoiFreeStyle().then((s) => { if (alive && s) setMapStyle(s); });
+    return () => { alive = false; };
+  }, [hidePoi]);
+
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
-      <Map style={StyleSheet.absoluteFill} mapStyle={MAP_STYLE} logo={false} attribution={true}>
+      <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true}>
         {follow ? (
           // Turn-by-turn: recenter on the driver and rotate the map to heading,
           // tilted for a 3D nav view (like Uber/Yandex).

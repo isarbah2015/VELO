@@ -11,7 +11,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
-import { distanceKm, etaMinutes, getRoute, type RouteResult } from '@/services/geo';
+import { distanceKm, distanceToPathKm, etaMinutes, getRoute, type RouteResult } from '@/services/geo';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
 
@@ -28,6 +28,7 @@ const { width, height } = Dimensions.get('window');
 type Phase = 'toPickup' | 'arrived' | 'inProgress' | 'summary';
 
 const FREE_WAIT_MIN = 5; // free wait once arrived at pickup
+const NO_SHOW_MIN = 10; // driver may cancel a no-show rider after this
 const ARRIVE_RADIUS_KM = 0.05; // END RIDE unlocks within 50 m of drop-off
 
 export default function DriverTripScreen() {
@@ -125,6 +126,27 @@ export default function DriverTripScreen() {
     if (rideId) await updateRideStatus(rideId, 'in_progress');
   };
 
+  // Stage 3: rider never showed after the no-show window — cancel and return.
+  const cancelNoShow = () => {
+    Alert.alert(
+      'Cancel — rider no-show',
+      `${riderName} hasn't shown up after ${NO_SHOW_MIN} minutes. Cancel this trip?`,
+      [
+        { text: 'Keep waiting', style: 'cancel' },
+        {
+          text: 'Cancel trip',
+          style: 'destructive',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            watchRef.current?.remove();
+            if (rideId) await updateRideStatus(rideId, 'cancelled');
+            router.replace('/(driver-tabs)');
+          },
+        },
+      ]
+    );
+  };
+
   // Stage 4 → 5: end ride at the drop-off. Books the fare + shows the summary.
   const endRide = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -165,6 +187,7 @@ export default function DriverTripScreen() {
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const waitSec = phase === 'arrived' && arrivedRef.current ? Math.max(0, (now - arrivedRef.current) / 1000) : 0;
   const overFreeWait = waitSec > FREE_WAIT_MIN * 60;
+  const canNoShow = waitSec >= NO_SHOW_MIN * 60; // rider never showed → allow cancel
   const elapsedMin = phase === 'inProgress' && startRef.current ? Math.floor((now - startRef.current) / 60000) : 0;
   const atDropoff = !!driverPos && !!destLL && distanceKm(driverPos, destLL) < ARRIVE_RADIUS_KM;
   const canEnd = !driverPos || atDropoff; // no GPS → allow; otherwise require < 50 m
@@ -199,6 +222,26 @@ export default function DriverTripScreen() {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legKey]);
+
+  // Off-course recalculation: if the driver strays more than OFF_COURSE_KM from
+  // the drawn route, recompute it from their current position (throttled so a
+  // brief GPS wobble or a genuine detour can't hammer the router).
+  const OFF_COURSE_KM = 0.06; // ~60 m
+  const RECALC_COOLDOWN_MS = 15000;
+  const lastRecalcRef = useRef(0);
+  useEffect(() => {
+    if (!driverPos || !target) return;
+    if (!route || route.coords.length < 2) return;
+    if (distanceKm(driverPos, target) >= 35) return; // ignore an implausible fix
+    if (distanceToPathKm(driverPos, route.coords) <= OFF_COURSE_KM) return;
+    const t = Date.now();
+    if (t - lastRecalcRef.current < RECALC_COOLDOWN_MS) return;
+    lastRecalcRef.current = t;
+    let alive = true;
+    getRoute(driverPos, target).then((r) => { if (alive) setRoute(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, target]);
 
   // Live countdown: recompute distance from the driver's *current* position
   // straight to the target on every GPS tick (cheap, no routing API) — the
@@ -243,6 +286,7 @@ export default function DriverTripScreen() {
           routeLine={route?.coords ?? null}
           follow={phase === 'toPickup' || phase === 'inProgress'}
           navMarker={navMarker}
+          hidePoi={phase === 'toPickup' || phase === 'inProgress'}
         />
       </View>
       {/* Dim only behind the big cards (arrived / summary); nav views stay clean. */}
@@ -342,6 +386,12 @@ export default function DriverTripScreen() {
             <Ionicons name="play" size={20} color="#000" />
             <Text style={styles.primaryText}>Start ride</Text>
           </TouchableOpacity>
+          {canNoShow && (
+            <TouchableOpacity style={styles.noShowBtn} onPress={cancelNoShow} activeOpacity={0.85}>
+              <Ionicons name="close-circle-outline" size={18} color="#EF4444" />
+              <Text style={styles.noShowText}>Cancel — rider no-show</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -517,6 +567,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000', borderRadius: 16, height: 56,
   },
   primaryText: { fontSize: 17, fontWeight: '800', color: '#000' },
+  noShowBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 46, borderRadius: 14, borderWidth: 1, borderColor: '#3F1F22',
+  },
+  noShowText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
 
   // Corners (SOS + rider avatar)
   corners: {

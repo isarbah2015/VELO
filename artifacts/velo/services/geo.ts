@@ -22,6 +22,33 @@ export function distanceKm(a: LngLat, b: LngLat): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
+// Shortest distance (km) from a point to a polyline — used to detect when a
+// driver has strayed off the drawn route so we can recompute it. Projects onto
+// each segment with a local equirectangular approximation (accurate at city
+// scale, and cheap enough to run on every GPS tick).
+export function distanceToPathKm(point: LngLat, path: LngLat[]): number {
+  if (path.length === 0) return Infinity;
+  if (path.length === 1) return distanceKm(point, path[0]);
+  const R = 6371;
+  const latRad = (point[1] * Math.PI) / 180;
+  const kx = ((Math.PI / 180) * R) * Math.cos(latRad); // km per ° lng at this lat
+  const ky = (Math.PI / 180) * R; // km per ° lat
+  const px = point[0] * kx;
+  const py = point[1] * ky;
+  let min = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const ax = path[i][0] * kx, ay = path[i][1] * ky;
+    const bx = path[i + 1][0] * kx, by = path[i + 1][1] * ky;
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    const t = lenSq > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq)) : 0;
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const d = Math.hypot(px - cx, py - cy);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
 // Rough ETA in minutes for a city motorbike at ~22 km/h average.
 export function etaMinutes(km: number): number {
   return Math.max(1, Math.round((km / 22) * 60));
