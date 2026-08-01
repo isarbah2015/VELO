@@ -42,9 +42,16 @@ export async function updateRiderLocation(rideId: string, lat: number, lng: numb
 }
 
 export function watchRide(rideId: string, callback: (ride: Ride | null) => void): Unsubscribe {
-  return onSnapshot(doc(db, 'rides', rideId), (snap) => {
-    callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Ride) : null);
-  });
+  return onSnapshot(
+    doc(db, 'rides', rideId),
+    (snap) => callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Ride) : null),
+    (err) => {
+      // A dropped listener (offline, permission, or the ride doc gone) must not
+      // surface as an uncaught snapshot-listener error — report null and log.
+      console.warn('[watchRide] listener error:', err.code ?? err.message);
+      callback(null);
+    }
+  );
 }
 
 export async function getRideHistory(uid: string, role: 'rider' | 'driver' = 'rider'): Promise<Ride[]> {
@@ -87,7 +94,9 @@ export async function getDriverRequests(): Promise<Ride[]> {
 // open-request pool so a rider's new booking shows up instantly, no refresh.
 export function watchDriverRequests(callback: (rides: Ride[]) => void): Unsubscribe {
   const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)));
-  });
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride))),
+    (err) => { console.warn('[watchDriverRequests] listener error:', err.code ?? err.message); callback([]); }
+  );
 }

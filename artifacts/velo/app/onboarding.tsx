@@ -21,6 +21,7 @@ const { width, height } = Dimensions.get('window');
 type SlideBg = {
   image?: number;
   imageStyle?: object; // per-slide framing (scale/rotate/offset) for the hero image
+  heroMode?: 'cover' | 'contain'; // 'cover' = full-bleed photo, 'contain' = whole product visible up top
   colors: readonly [string, string, ...string[]];
   glow: string;
 };
@@ -51,10 +52,12 @@ const SLIDES: {
     title: 'No Surprises.\nKnow Your Fare.',
     subtitle: 'See the full price before you ride. Base ₵5 + ₵2.50/km — no hidden fees, ever.',
     features: ['Base Fare ₵5.00', '₵2.50 per km', '₵0.50 per min'],
-    // Standard bike — zoomed to a 3/4 front view, sitting in the upper area.
+    // Standard bike — shown whole (front wheel + tyres visible) in the top area.
     bg: {
       image: require('@/assets/images/bike-standard.png'),
-      imageStyle: { transform: [{ scale: 1.55 }, { translateX: -width * 0.2 }, { translateY: -height * 0.12 }] },
+      heroMode: 'contain',
+      // Zoom into the front quarter (front wheel + fairing).
+      imageStyle: { transform: [{ scale: 2.6 }, { translateX: -width * 0.33 }] },
       colors: ['#0A1F2E', '#0A1424', '#09090B'],
       glow: 'rgba(255,208,0,0.22)',
     },
@@ -65,10 +68,12 @@ const SLIDES: {
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
-    // Premium bike — rotated vertical (front up, tail down toward the text).
+    // Premium bike — shown whole in the top area (no crop), text sits below.
     bg: {
       image: require('@/assets/images/bike-premium.png'),
-      imageStyle: { transform: [{ rotate: '-90deg' }, { scale: 1.15 }, { translateX: -height * 0.04 }] },
+      heroMode: 'contain',
+      // Zoom into the front quarter (front wheel + fairing).
+      imageStyle: { transform: [{ scale: 2.6 }, { translateX: -width * 0.33 }] },
       colors: ['#0A2A1C', '#0A1A14', '#09090B'],
       glow: 'rgba(34,197,94,0.22)',
     },
@@ -106,32 +111,15 @@ export default function OnboardingScreen() {
     router.replace('/(auth)/login');
   };
 
-  const renderSlide = (item: typeof SLIDES[0]) => (
-    <View style={styles.slide}>
-      <View style={styles.textContent}>
-        <View style={styles.tagPill}>
-          <Text style={styles.tagText}>{item.tag}</Text>
-        </View>
-        <Text style={styles.title}>{item.title}</Text>
-        <Text style={styles.subtitle}>{item.subtitle}</Text>
-        {item.features && (
-          <View style={styles.featureList}>
-            {item.features.map((f) => (
-              <View key={f} style={styles.featureRow}>
-                <View style={styles.featureDot} />
-                <Text style={styles.featureText}>{f}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </View>
-  );
+  const slide = SLIDES[currentIndex];
+  const isContain = slide.bg.heroMode === 'contain';
 
   return (
     <View style={styles.container}>
-      {/* Per-slide premium backgrounds, crossfaded as you advance. Each slide
-          gets its own atmosphere (hero photo, then coloured gradient + glow). */}
+      {/* Per-slide backdrop, crossfaded as you advance: the full-bleed photo for
+          'cover' slides, or a coloured gradient for 'contain' product slides.
+          (The contained product image itself sits in normal flow below, so it
+          can never cover the text or the footer.) */}
       {SLIDES.map((item, i) => {
         const opacity = progress.interpolate({
           inputRange: [i - 1, i, i + 1],
@@ -144,12 +132,8 @@ export default function OnboardingScreen() {
             style={[StyleSheet.absoluteFill, { opacity }]}
             pointerEvents="none"
           >
-            {item.bg.image ? (
-              <Image
-                source={item.bg.image}
-                style={[styles.heroBg, item.bg.imageStyle]}
-                resizeMode="cover"
-              />
+            {item.bg.image && item.bg.heroMode !== 'contain' ? (
+              <Image source={item.bg.image} style={styles.heroBg} resizeMode="cover" />
             ) : (
               <LinearGradient
                 colors={item.bg.colors}
@@ -187,9 +171,39 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Current slide — text sits over the lower third of the screen. Only the
-          active slide is rendered; the background crossfade animates the change. */}
-      <View style={styles.flatList}>{renderSlide(SLIDES[currentIndex])}</View>
+      {/* Content column: the contained product image (if any) sits up top, and
+          the text sits below it — both in normal flow, so nothing overlaps. */}
+      <View style={styles.slide}>
+        {/* Cropped bike hero, absolutely positioned in the top band so it never
+            disturbs the flow of the text/footer below. The zoom shows only the
+            front quarter; the screen edges do the cropping. */}
+        {isContain && slide.bg.image && (
+          <View style={styles.heroClip}>
+            <Image
+              source={slide.bg.image}
+              style={[styles.heroImg, slide.bg.imageStyle]}
+              resizeMode="contain"
+            />
+          </View>
+        )}
+        <View style={styles.textContent}>
+          <View style={styles.tagPill}>
+            <Text style={styles.tagText}>{slide.tag}</Text>
+          </View>
+          <Text style={styles.title}>{slide.title}</Text>
+          <Text style={styles.subtitle}>{slide.subtitle}</Text>
+          {slide.features && (
+            <View style={styles.featureList}>
+              {slide.features.map((f) => (
+                <View key={f} style={styles.featureRow}>
+                  <View style={styles.featureDot} />
+                  <Text style={styles.featureText}>{f}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
 
       {/* Bottom */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
@@ -227,6 +241,22 @@ const styles = StyleSheet.create({
     left: -width * 0.09,
     width: width * 1.18,
     height: height,
+  },
+  // Cropped hero: an ABSOLUTE clip box in the top band. Absolute keeps it out of
+  // flow (the text/footer below lay out untouched); overflow:hidden confines the
+  // zoomed image — including its opaque background — to this band so it can't
+  // cover the text. The per-slide zoom shows only the front quarter of the bike.
+  heroClip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.44,
+    overflow: 'hidden',
+  },
+  heroImg: {
+    width: '100%',
+    height: '100%',
   },
   header: {
     flexDirection: 'row',

@@ -29,18 +29,22 @@ export async function sendMessage(rideId: string, senderId: string, senderName: 
 
 export function watchMessages(rideId: string, callback: (msgs: ChatMessage[]) => void): Unsubscribe {
   const q = query(collection(db, 'rides', rideId, 'messages'), orderBy('clientAt', 'asc'));
-  return onSnapshot(q, (snap) => {
-    callback(
-      snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          text: data.text,
-          createdAt: data.clientAt ?? Date.now(),
-        } as ChatMessage;
-      })
-    );
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      callback(
+        snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            senderId: data.senderId,
+            senderName: data.senderName,
+            text: data.text,
+            createdAt: data.clientAt ?? Date.now(),
+          } as ChatMessage;
+        })
+      );
+    },
+    (err) => { console.warn('[watchMessages] listener error:', (err as any).code ?? err.message); callback([]); }
+  );
 }

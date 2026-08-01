@@ -113,6 +113,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isOnboarded, setIsOnboarded] = useState(false);
+  const [onboardChecked, setOnboardChecked] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string } | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
@@ -133,7 +134,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_KEY).then((v) => { if (v) setIsOnboarded(true); });
+    AsyncStorage.getItem(ONBOARDING_KEY)
+      .then((v) => { if (v) setIsOnboarded(true); })
+      .finally(() => setOnboardChecked(true));
   }, []);
 
   const loadUserData = useCallback(async (uid: string, role: Role) => {
@@ -304,7 +307,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [firebaseUser]);
 
   const value = useMemo(() => ({
-    isLoading,
+    // Stay "loading" until BOTH Firebase auth AND the persisted onboarding flag
+    // have been checked — otherwise index.tsx can redirect an already-onboarded
+    // user back to the welcome flow during the brief window before the flag load
+    // resolves.
+    isLoading: isLoading || !onboardChecked,
     authInitialized,
     isOnboarded,
     isAuthenticated: !!firebaseUser,
@@ -335,7 +342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     navMarker,
     setNavMarker,
   }), [
-    isLoading, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline, navMarker, setNavMarker,

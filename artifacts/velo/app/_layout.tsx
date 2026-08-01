@@ -16,29 +16,27 @@ import { Stack, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppProvider, useApp } from '@/context/AppContext';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
-// Inner component that waits for auth initialization before rendering Stack
-function AuthGate({ children }: { children: React.ReactNode }) {
+// Single splash bridge: show the animated splash until BOTH the branded
+// animation has finished AND Firebase has restored the auth state, then hand
+// off directly to the navigator. One continuous splash — no spinner flash or
+// second logo in between (the native splash simply hands over to this one).
+function Bootstrap() {
   const { authInitialized } = useApp();
+  const [animDone, setAnimDone] = useState(false);
+  const ready = authInitialized && animDone;
 
-  // Don't render the navigation tree until Firebase has finished
-  // checking the persisted auth state. This prevents the login screen
-  // from flashing briefly on every app restart.
-  if (!authInitialized) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#FFD000" />
-      </View>
-    );
-  }
-
-  return <>{children}</>;
+  return (
+    <>
+      {!ready && <AnimatedSplash onDone={() => setAnimDone(true)} />}
+      {ready && <RootLayoutNav />}
+    </>
+  );
 }
 
 function RootLayoutNav() {
@@ -83,7 +81,6 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const [splashDone, setSplashDone] = useState(false);
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -106,10 +103,7 @@ export default function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <AppProvider>
               <ErrorBoundary>
-                <AuthGate>
-                  {!splashDone && <AnimatedSplash onDone={() => setSplashDone(true)} />}
-                  {splashDone && <RootLayoutNav />}
-                </AuthGate>
+                <Bootstrap />
               </ErrorBoundary>
             </AppProvider>
           </QueryClientProvider>
@@ -119,11 +113,3 @@ export default function RootLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: '#09090B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
