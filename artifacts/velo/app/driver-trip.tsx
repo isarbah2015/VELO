@@ -206,9 +206,11 @@ export default function DriverTripScreen() {
           driver={driverPos}
           rider={riderPos}
           routeLine={route?.coords ?? null}
+          follow={phase === 'inProgress'}
         />
       </View>
-      <View style={styles.mapDim} pointerEvents="none" />
+      {/* Only dim the map when a big card is shown; the in-trip view stays clean. */}
+      {phase !== 'inProgress' && <View style={styles.mapDim} pointerEvents="none" />}
 
       {/* Header: compact live ETA card + SOS */}
       <View style={[styles.header, { top: topPad }]}>
@@ -243,49 +245,78 @@ export default function DriverTripScreen() {
             <Text style={styles.liveText}>{statusLine}</Text>
           </View>
         )}
-        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
-          <Ionicons name="alert-circle" size={22} color="#EF4444" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {phase === 'inProgress' && (
+            <TouchableOpacity
+              style={styles.riderChipTop}
+              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
+            <Ionicons name="alert-circle" size={22} color="#EF4444" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Bottom trip card */}
-      <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={styles.riderRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{riderName.charAt(0).toUpperCase()}</Text>
-          </View>
+      {phase === 'inProgress' ? (
+        /* In-trip: distraction-free. Just a slim drop-off bar + Complete. */
+        <View style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.riderName} numberOfLines={1}>{riderName}</Text>
-            <Text style={styles.fare}>₵{price.toFixed(2)}</Text>
+            <Text style={styles.miniLabel}>Dropping off</Text>
+            <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.chatBtn}
-            onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
-          >
-            <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
+          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={18} color="#FFD000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.callBtn} onPress={handleCall} activeOpacity={0.85}>
-            <Ionicons name="call" size={18} color="#000" />
+          <TouchableOpacity style={styles.miniComplete} onPress={completeTrip} activeOpacity={0.85}>
+            <Ionicons name="checkmark-done" size={18} color="#000" />
+            <Text style={styles.miniCompleteText}>Complete</Text>
           </TouchableOpacity>
         </View>
+      ) : (
+        /* Heading to / at pickup: full rider card so the driver can identify +
+           contact the rider and confirm arrival. */
+        <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.riderRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{riderName.charAt(0).toUpperCase()}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.riderName} numberOfLines={1}>{riderName}</Text>
+              <Text style={styles.fare}>₵{price.toFixed(2)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.chatBtn}
+              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+            >
+              <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.callBtn} onPress={handleCall} activeOpacity={0.85}>
+              <Ionicons name="call" size={18} color="#000" />
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.routeBox}>
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, { backgroundColor: '#FFD000' }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{from}</Text>
+          <View style={styles.routeBox}>
+            <View style={styles.routeRow}>
+              <View style={[styles.routeDot, { backgroundColor: '#FFD000' }]} />
+              <Text style={styles.routeText} numberOfLines={1}>{from}</Text>
+            </View>
+            <View style={styles.routeLine} />
+            <View style={styles.routeRow}>
+              <View style={[styles.routeDot, { backgroundColor: '#EF4444' }]} />
+              <Text style={styles.routeText} numberOfLines={1}>{to}</Text>
+            </View>
           </View>
-          <View style={styles.routeLine} />
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, { backgroundColor: '#EF4444' }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{to}</Text>
-          </View>
+
+          <TouchableOpacity style={styles.primaryBtn} onPress={primary.onPress} activeOpacity={0.85}>
+            <Ionicons name={primary.icon} size={20} color="#000" />
+            <Text style={styles.primaryText}>{primary.label}</Text>
+          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={styles.primaryBtn} onPress={primary.onPress} activeOpacity={0.85}>
-          <Ionicons name={primary.icon} size={20} color="#000" />
-          <Text style={styles.primaryText}>{primary.label}</Text>
-        </TouchableOpacity>
-      </View>
+      )}
     </View>
   );
 }
@@ -297,10 +328,35 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 16, right: 16, flexDirection: 'row',
     alignItems: 'center', justifyContent: 'space-between',
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sosBtn: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
     borderWidth: 1, borderColor: '#3F1F22', alignItems: 'center', justifyContent: 'center',
   },
+  riderChipTop: {
+    width: 46, height: 46, borderRadius: 23, backgroundColor: '#FFD000',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+  },
+  riderChipInitial: { fontSize: 20, fontWeight: '800', color: '#000' },
+  miniBar: {
+    position: 'absolute', left: 12, right: 12, bottom: 0,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(19,19,22,0.96)', borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    borderWidth: 1, borderColor: '#27272A', paddingHorizontal: 18, paddingTop: 14,
+  },
+  miniLabel: { color: '#71717A', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  miniTo: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 2 },
+  miniCall: {
+    width: 46, height: 46, borderRadius: 23, backgroundColor: '#1C1C1F',
+    borderWidth: 1, borderColor: '#3F3F46', alignItems: 'center', justifyContent: 'center',
+  },
+  miniComplete: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#FFD000', borderRadius: 14, height: 46, paddingHorizontal: 18,
+  },
+  miniCompleteText: { fontSize: 15, fontWeight: '800', color: '#000' },
   livePill: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#131316', borderWidth: 1, borderColor: '#27272A',

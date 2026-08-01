@@ -73,6 +73,7 @@ export default function LiveMap({
   rider,
   routeLine,
   showDemand,
+  follow,
 }: {
   width: number;
   height: number;
@@ -84,6 +85,7 @@ export default function LiveMap({
   rider?: [number, number] | null; // live rider position at pickup
   routeLine?: [number, number][] | null; // road-following navigation polyline
   showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
+  follow?: boolean; // turn-by-turn camera that follows the driver with heading
 }) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
@@ -93,7 +95,13 @@ export default function LiveMap({
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
       <Map style={StyleSheet.absoluteFill} mapStyle={MAP_STYLE} logo={false} attribution={true}>
-        <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
+        {follow ? (
+          // Turn-by-turn: recenter on the driver and rotate the map to heading,
+          // tilted for a 3D nav view (like Uber/Yandex).
+          <Camera trackUserLocation="course" zoom={15.5} pitch={55} />
+        ) : (
+          <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
+        )}
         <UserLocation />
 
         {showDemand
