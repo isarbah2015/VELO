@@ -272,37 +272,36 @@ export default function DriverTripScreen() {
       </View>
 
       {phase === 'inProgress' ? (
-        /* In-trip: distraction-free premium drop-off card. */
-        <View style={[styles.miniWrap, { paddingBottom: insets.bottom + 14 }]}>
-          <LinearGradient
-            colors={['#1B1B1F', '#131316']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.miniBar}
-          >
-            <View style={styles.miniPin}>
-              <Ionicons name="location" size={17} color="#EF4444" />
-            </View>
-            <View style={styles.miniTextWrap}>
-              <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF</Text>
-              <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
-            </View>
-            <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
-              <Ionicons name="call" size={18} color="#FFD000" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={completeTrip} activeOpacity={0.9}>
-              <LinearGradient
-                colors={['#FFDE5C', '#FFB800']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.miniComplete}
-              >
-                <Ionicons name="checkmark-done" size={18} color="#000" />
-                <Text style={styles.miniCompleteText}>Complete</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </LinearGradient>
-        </View>
+        /* In-trip: distraction-free premium drop-off sheet (full-width, flush
+           to the bottom edge — no floating gap). */
+        <LinearGradient
+          colors={['#1B1B1F', '#131316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}
+        >
+          <View style={styles.miniPin}>
+            <Ionicons name="location" size={17} color="#EF4444" />
+          </View>
+          <View style={styles.miniTextWrap}>
+            <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF</Text>
+            <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
+          </View>
+          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={18} color="#FFD000" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={completeTrip} activeOpacity={0.9}>
+            <LinearGradient
+              colors={['#FFDE5C', '#FFB800']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.miniComplete}
+            >
+              <Ionicons name="checkmark-done" size={18} color="#000" />
+              <Text style={styles.miniCompleteText}>Complete</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </LinearGradient>
       ) : (
         /* Heading to / at pickup: full rider card so the driver can identify +
            contact the rider and confirm arrival. */
@@ -367,16 +366,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
   riderChipInitial: { fontSize: 20, fontWeight: '800', color: '#000' },
-  miniWrap: {
-    position: 'absolute', left: 12, right: 12, bottom: 0,
-    backgroundColor: '#131316', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-  },
   miniBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1, borderColor: '#2A2A2D',
-    paddingHorizontal: 12, paddingVertical: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 20,
+    borderTopLeftRadius: 26, borderTopRightRadius: 26,
+    borderTopWidth: 1, borderColor: '#2A2A2D',
+    paddingHorizontal: 16, paddingTop: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.45, shadowRadius: 20, elevation: 24,
   },
   miniPin: {
     width: 38, height: 38, borderRadius: 19,
@@ -392,7 +388,7 @@ const styles = StyleSheet.create({
   },
   miniComplete: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    borderRadius: 14, height: 44, paddingHorizontal: 16,
+    borderRadius: 14, height: 44, paddingHorizontal: 13,
   },
   miniCompleteText: { fontSize: 15, fontWeight: '800', color: '#000' },
   livePill: {

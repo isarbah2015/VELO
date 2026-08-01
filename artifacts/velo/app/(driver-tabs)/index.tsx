@@ -136,28 +136,28 @@ export default function DriverHomeScreen() {
         </View>
       </View>
 
-      {/* Driver tier + promotion progress */}
-      <View style={[styles.tierWrap, { top: topPad + 56 }]}>
-        <View style={styles.tierPill}>
-          <Ionicons name={tp.tier === 'bossu' ? 'flash' : tp.tier === 'premium' ? 'shield-checkmark' : 'bicycle'} size={14} color="#FFD000" />
-          <Text style={styles.tierName}>{tp.current.label}</Text>
-          {tp.next ? (
-            <>
-              <View style={styles.tierBarTrack}>
-                <View style={[styles.tierBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
-              </View>
-              <Text style={styles.tierNext} numberOfLines={1}>
-                {tp.ridesToNext > 0 ? `${tp.ridesToNext} rides` : 'keep rating'}{tp.ratingNeeded ? ` + ${tp.ratingNeeded}★` : ''} → {tp.next.label}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.tierNext}>Top tier 🎉</Text>
-          )}
-        </View>
-      </View>
-
       {/* Bottom action panel */}
       <View style={[styles.bottomWrap, { bottom: tabBarH + 8 }]}>
+        {/* Driver tier + promotion progress — sits just above the status panel */}
+        {!incoming && (
+          <View style={styles.tierPill}>
+            <Ionicons name={tp.tier === 'bossu' ? 'flash' : tp.tier === 'premium' ? 'shield-checkmark' : 'speedometer'} size={14} color="#FFD000" />
+            <Text style={styles.tierName}>{tp.current.label}</Text>
+            {tp.next ? (
+              <>
+                <View style={styles.tierBarTrack}>
+                  <View style={[styles.tierBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
+                </View>
+                <Text style={styles.tierNext} numberOfLines={1}>
+                  {tp.ridesToNext > 0 ? `${tp.ridesToNext} rides` : 'keep rating'}{tp.ratingNeeded ? ` +${tp.ratingNeeded}★` : ''} → {tp.next.label}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.tierNext}>Top tier 🎉</Text>
+            )}
+          </View>
+        )}
+
         {incoming ? (
           <View style={styles.requestCard}>
             <View style={styles.requestHeader}>
@@ -231,24 +231,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     zIndex: 10,
   },
-  tierWrap: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    zIndex: 10,
-    alignItems: 'flex-start',
-  },
   tierPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 8,
     maxWidth: '100%',
-    backgroundColor: 'rgba(9,9,11,0.72)',
+    backgroundColor: 'rgba(9,9,11,0.85)',
     borderWidth: 1,
     borderColor: '#27272A',
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
   },
   tierName: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
   tierBarTrack: {

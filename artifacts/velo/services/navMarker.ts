@@ -1,5 +1,6 @@
 // Driver-selectable navigation marker (the puck that follows them on the map).
-export type NavIconId = 'moto' | 'bike' | 'nav';
+// Motorbike ride app — two bike styles + a plain nav arrow (no bicycle).
+export type NavIconId = 'moto' | 'moped' | 'nav';
 
 export interface NavMarker {
   icon: NavIconId;
@@ -12,8 +13,8 @@ export const NAV_ICONS: {
   name: string;
   label: string;
 }[] = [
-  { id: 'moto', family: 'mci', name: 'motorbike', label: 'Motorbike' },
-  { id: 'bike', family: 'ionicons', name: 'bicycle', label: 'Bicycle' },
+  { id: 'moto', family: 'mci', name: 'motorbike', label: 'Sport bike' },
+  { id: 'moped', family: 'mci', name: 'moped', label: 'Moped' },
   { id: 'nav', family: 'ionicons', name: 'navigate', label: 'Arrow' },
 ];
 
