@@ -49,6 +49,17 @@ export function distanceToPathKm(point: LngLat, path: LngLat[]): number {
   return min;
 }
 
+// Compass bearing (0–360°, 0 = north) from point a to point b — used to orient
+// the driver's vehicle marker along its direction of travel during navigation.
+export function bearing(a: LngLat, b: LngLat): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(toRad(b[0] - a[0])) * Math.cos(toRad(b[1]));
+  const x =
+    Math.cos(toRad(a[1])) * Math.sin(toRad(b[1])) -
+    Math.sin(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.cos(toRad(b[0] - a[0]));
+  return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
+}
+
 // Rough ETA in minutes for a city motorbike at ~22 km/h average.
 export function etaMinutes(km: number): number {
   return Math.max(1, Math.round((km / 22) * 60));

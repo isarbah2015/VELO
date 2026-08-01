@@ -55,9 +55,15 @@ export async function getRideHistory(uid: string, role: 'rider' | 'driver' = 'ri
 }
 
 // Stream the driver's live position onto the ride doc during an active trip
-// so the rider's tracking screen can follow it in realtime.
+// so the rider's tracking screen can follow it in realtime. Best-effort
+// telemetry — a dropped write (offline, or the ride doc already gone) must
+// never surface as an unhandled rejection, so failures are swallowed.
 export async function updateDriverLocation(rideId: string, lat: number, lng: number) {
-  await updateDoc(doc(db, 'rides', rideId), { driverLoc: { lat, lng, at: Date.now() } });
+  try {
+    await updateDoc(doc(db, 'rides', rideId), { driverLoc: { lat, lng, at: Date.now() } });
+  } catch {
+    // ignore — the next GPS tick will retry
+  }
 }
 
 export async function updateRideStatus(

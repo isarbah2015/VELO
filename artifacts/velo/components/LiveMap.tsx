@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
-import { type NavMarker, navIcon } from '@/services/navMarker';
+import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
 // Coordinates are [longitude, latitude] for MapLibre.
 const ACCRA: [number, number] = [-0.187, 5.6037];
@@ -84,13 +84,18 @@ function HeatBlob({ intensity, index }: { intensity: number; index: number }) {
 }
 
 // The driver's own follow puck — their chosen icon + colour, in a rounded chip
-// with a subtle heading notch, sitting on the live GPS position.
-function NavPuck({ marker }: { marker: NavMarker }) {
+// with a heading beam, sitting on the driver's position and rotated to their
+// direction of travel (like the Uber/Google Maps vehicle chevron).
+function NavPuck({ marker, heading }: { marker: NavMarker; heading?: number }) {
   const ic = navIcon(marker.icon);
   const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
   const dark = marker.color === '#FFFFFF' || marker.color === '#FFD000';
   return (
     <View style={styles.puckWrap} pointerEvents="none">
+      {/* directional beam sweeping ahead of the vehicle */}
+      <View style={[styles.puckBeamWrap, heading != null && { transform: [{ rotate: `${heading}deg` }] }]}>
+        <View style={[styles.puckBeam, { borderBottomColor: marker.color }]} />
+      </View>
       <View style={[styles.puckHalo, { backgroundColor: marker.color }]} />
       <View style={[styles.puck, { backgroundColor: marker.color }]}>
         <Family name={ic.name as any} size={20} color={dark ? '#000' : '#FFFFFF'} />
@@ -121,6 +126,7 @@ export default function LiveMap({
   follow,
   navMarker,
   hidePoi,
+  heading,
 }: {
   width: number;
   height: number;
@@ -135,6 +141,7 @@ export default function LiveMap({
   follow?: boolean; // turn-by-turn camera that follows the driver with heading
   navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
   hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
+  heading?: number; // driver's course (deg) to orient the vehicle marker
 }) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
@@ -154,14 +161,24 @@ export default function LiveMap({
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
       <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true}>
-        {follow ? (
-          // Turn-by-turn: recenter on the driver and rotate the map to heading,
-          // tilted for a 3D nav view (like Uber/Yandex).
+        {follow && driver ? (
+          // Turn-by-turn: keep the driver's vehicle centred, rotate the map to
+          // their heading, tilted for a 3D nav view (like Uber/Google Maps).
+          <Camera
+            center={driver}
+            bearing={heading ?? 0}
+            pitch={55}
+            zoom={16}
+            easing="ease"
+            duration={700}
+          />
+        ) : follow ? (
           <Camera trackUserLocation="course" zoom={15.5} pitch={55} />
         ) : (
           <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
         )}
-        <UserLocation>{navMarker ? <NavPuck marker={navMarker} /> : null}</UserLocation>
+        {/* Blue GPS dot only when we aren't drawing an explicit vehicle marker. */}
+        <UserLocation>{navMarker && !driver ? <NavPuck marker={navMarker} heading={heading} /> : null}</UserLocation>
 
         {showDemand
           ? DEMAND.map(([lng, lat, intensity], i) => (
@@ -208,7 +225,13 @@ export default function LiveMap({
                 <Pin color="#4DB8FF" />
               </Marker>
             ) : null}
-            {/* The driver's own position is the UserLocation follow-puck above. */}
+            {/* The driver's vehicle — their chosen icon, rotated to heading and
+                sitting on the road, exactly where the nav camera is centred. */}
+            {driver ? (
+              <Marker id="driver" lngLat={driver}>
+                <NavPuck marker={navMarker ?? DEFAULT_NAV_MARKER} heading={heading} />
+              </Marker>
+            ) : null}
           </>
         ) : (
           NEARBY.map((c, i) => (
@@ -224,6 +247,13 @@ export default function LiveMap({
 
 const styles = StyleSheet.create({
   puckWrap: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
+  puckBeamWrap: { position: 'absolute', width: 60, height: 60, alignItems: 'center', justifyContent: 'flex-start' },
+  puckBeam: {
+    width: 0, height: 0,
+    borderLeftWidth: 16, borderRightWidth: 16, borderBottomWidth: 26,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent',
+    opacity: 0.5,
+  },
   puckHalo: { position: 'absolute', width: 56, height: 56, borderRadius: 28, opacity: 0.22 },
   puck: {
     width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center',

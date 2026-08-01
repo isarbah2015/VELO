@@ -11,7 +11,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
-import { distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
+import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
 import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
@@ -136,12 +136,23 @@ export default function DriverTripScreen() {
     };
   }, [rideId]);
 
+  // Persist a ride-status change without letting a dropped write (offline, or a
+  // missing ride doc) crash the flow — the local UI advances regardless.
+  const safeStatus = async (status: Parameters<typeof updateRideStatus>[1], extra?: Parameters<typeof updateRideStatus>[2]) => {
+    if (!rideId) return;
+    try {
+      await updateRideStatus(rideId, status, extra);
+    } catch (e) {
+      console.warn('[driver-trip] status update failed:', status, e);
+    }
+  };
+
   const arrivedAtPickup = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     arrivedRef.current = Date.now();
     setPhase('arrived');
     speak(`You've arrived at the pickup. Meet ${riderName.split(' ')[0]}.`, { interrupt: true });
-    if (rideId) await updateRideStatus(rideId, 'arrived');
+    await safeStatus('arrived');
   };
 
   const startTrip = async () => {
@@ -149,7 +160,7 @@ export default function DriverTripScreen() {
     setPhase('inProgress');
     startRef.current = Date.now();
     speak('Trip started. Navigating to the destination.', { interrupt: true });
-    if (rideId) await updateRideStatus(rideId, 'in_progress');
+    await safeStatus('in_progress');
   };
 
   // Stage 3: rider never showed after the no-show window — cancel and return.
@@ -165,7 +176,7 @@ export default function DriverTripScreen() {
           onPress: async () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             watchRef.current?.remove();
-            if (rideId) await updateRideStatus(rideId, 'cancelled');
+            await safeStatus('cancelled');
             router.replace('/(driver-tabs)');
           },
         },
@@ -178,10 +189,14 @@ export default function DriverTripScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const durationMin = Math.max(1, Math.round((Date.now() - startRef.current) / 60000));
     watchRef.current?.remove();
-    if (rideId) await updateRideStatus(rideId, 'completed', { durationMin });
-    if (user) {
-      await recordCompletedRide(user.uid, price);
-      await refreshDriverStatus();
+    await safeStatus('completed', { durationMin });
+    try {
+      if (user) {
+        await recordCompletedRide(user.uid, price);
+        await refreshDriverStatus();
+      }
+    } catch (e) {
+      console.warn('[driver-trip] booking earnings failed:', e);
     }
     speak('Ride completed.', { interrupt: true });
     setPhase('summary');
@@ -190,7 +205,7 @@ export default function DriverTripScreen() {
   // Stage 5 → IDLE: save the driver's rating of the rider and return.
   const finalizeRide = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (rideId) await updateRideStatus(rideId, 'completed', { riderRating: rating });
+    await safeStatus('completed', { riderRating: rating });
     router.replace('/(driver-tabs)');
   };
 
@@ -328,6 +343,27 @@ export default function DriverTripScreen() {
   const etaMin = distKm != null ? etaMinutes(distKm) : null;
   const targetLabel = phase === 'inProgress' ? 'to destination' : `to ${riderName.split(' ')[0]}`;
 
+  // The driver's vehicle position on the nav map: their real GPS when it's a
+  // plausibly-nearby fix, otherwise the seeded origin so the puck always sits on
+  // the route (the simulator rarely supplies an on-route fix). Heading points
+  // along the route ahead so the map rotates like Uber/Google Maps.
+  const navPos: LngLat | null = phase === 'toPickup' || phase === 'inProgress' ? origin : driverPos;
+  const navHeading = (() => {
+    if (!navPos) return 0;
+    const coords = route?.coords;
+    if (coords && coords.length > 1) {
+      // nearest route vertex to the vehicle, then look ahead a few points
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < coords.length; i++) {
+        const dd = distanceKm(navPos, coords[i]);
+        if (dd < bestD) { bestD = dd; best = i; }
+      }
+      const ahead = coords[Math.min(best + 3, coords.length - 1)];
+      if (ahead && (ahead[0] !== navPos[0] || ahead[1] !== navPos[1])) return bearing(navPos, ahead);
+    }
+    return target ? bearing(navPos, target) : 0;
+  })();
+
   // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
   const enter = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -353,7 +389,8 @@ export default function DriverTripScreen() {
           mode="route"
           pickup={pickupLL}
           dest={destLL}
-          driver={driverPos}
+          driver={navPos}
+          heading={navHeading}
           rider={riderPos}
           routeLine={route?.coords ?? null}
           follow={phase === 'toPickup' || phase === 'inProgress'}
