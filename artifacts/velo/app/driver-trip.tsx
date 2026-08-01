@@ -23,7 +23,12 @@ const { width, height } = Dimensions.get('window');
 // rider follows the bike on their map) and steps the ride through its
 // lifecycle — accepted → arrived → in_progress → completed. The fare is only
 // booked into earnings when the trip actually completes here.
-type Phase = 'toPickup' | 'arrived' | 'inProgress';
+// Yandex-Pro style stages: nav to pickup → arrived (wait) → nav to drop-off →
+// completed summary (fare + rate rider).
+type Phase = 'toPickup' | 'arrived' | 'inProgress' | 'summary';
+
+const FREE_WAIT_MIN = 5; // free wait once arrived at pickup
+const ARRIVE_RADIUS_KM = 0.05; // END RIDE unlocks within 50 m of drop-off
 
 export default function DriverTripScreen() {
   const insets = useSafeAreaInsets();
@@ -51,8 +56,17 @@ export default function DriverTripScreen() {
   const [phase, setPhase] = useState<Phase>('toPickup');
   const [driverPos, setDriverPos] = useState<LngLat | null>(null);
   const [riderPos, setRiderPos] = useState<LngLat | null>(null);
-  const startRef = useRef(Date.now());
+  const [rating, setRating] = useState(5);
+  const [now, setNow] = useState(Date.now()); // 1s ticker for wait/elapsed timers
+  const startRef = useRef(0); // trip start (inProgress)
+  const arrivedRef = useRef(0); // arrived-at-pickup time
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+
+  // 1s ticker drives the wait timer (Stage 3) and elapsed time (Stage 4).
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // Follow the rider's live position (streamed from their tracking screen).
   useEffect(() => {
@@ -99,6 +113,7 @@ export default function DriverTripScreen() {
 
   const arrivedAtPickup = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    arrivedRef.current = Date.now();
     setPhase('arrived');
     if (rideId) await updateRideStatus(rideId, 'arrived');
   };
@@ -110,7 +125,8 @@ export default function DriverTripScreen() {
     if (rideId) await updateRideStatus(rideId, 'in_progress');
   };
 
-  const completeTrip = async () => {
+  // Stage 4 → 5: end ride at the drop-off. Books the fare + shows the summary.
+  const endRide = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const durationMin = Math.max(1, Math.round((Date.now() - startRef.current) / 60000));
     watchRef.current?.remove();
@@ -119,6 +135,13 @@ export default function DriverTripScreen() {
       await recordCompletedRide(user.uid, price);
       await refreshDriverStatus();
     }
+    setPhase('summary');
+  };
+
+  // Stage 5 → IDLE: save the driver's rating of the rider and return.
+  const finalizeRide = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (rideId) await updateRideStatus(rideId, 'completed', { riderRating: rating });
     router.replace('/(driver-tabs)');
   };
 
@@ -138,15 +161,18 @@ export default function DriverTripScreen() {
     );
   };
 
-  const primary =
-    phase === 'toPickup'
-      ? { label: 'Arrived at pickup', onPress: arrivedAtPickup, icon: 'flag-outline' as const }
-      : phase === 'arrived'
-      ? { label: 'Start trip', onPress: startTrip, icon: 'play' as const }
-      : { label: 'Complete trip', onPress: completeTrip, icon: 'checkmark-done' as const };
-
+  // Stage 3 wait timer, Stage 4 elapsed timer, and the drop-off geo-gate.
+  const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const waitSec = phase === 'arrived' && arrivedRef.current ? Math.max(0, (now - arrivedRef.current) / 1000) : 0;
+  const overFreeWait = waitSec > FREE_WAIT_MIN * 60;
+  const elapsedMin = phase === 'inProgress' && startRef.current ? Math.floor((now - startRef.current) / 60000) : 0;
+  const atDropoff = !!driverPos && !!destLL && distanceKm(driverPos, destLL) < ARRIVE_RADIUS_KM;
+  const canEnd = !driverPos || atDropoff; // no GPS → allow; otherwise require < 50 m
   const statusLine =
-    phase === 'toPickup' ? 'Head to pickup' : phase === 'arrived' ? 'Waiting for rider' : 'Trip in progress';
+    phase === 'toPickup' ? 'to pickup' : phase === 'inProgress' ? 'to destination' : '';
+  // Fare breakdown for the Stage-5 summary.
+  const baseFare = 5;
+  const distanceFare = Math.max(0, price - baseFare);
 
   // Navigation target: the rider's pickup while heading there, then the
   // destination once the trip starts.
@@ -215,65 +241,112 @@ export default function DriverTripScreen() {
           driver={driverPos}
           rider={riderPos}
           routeLine={route?.coords ?? null}
-          follow={phase === 'inProgress'}
+          follow={phase === 'toPickup' || phase === 'inProgress'}
           navMarker={navMarker}
         />
       </View>
-      {/* Only dim the map when a big card is shown; the in-trip view stays clean. */}
-      {phase !== 'inProgress' && <View style={styles.mapDim} pointerEvents="none" />}
+      {/* Dim only behind the big cards (arrived / summary); nav views stay clean. */}
+      {(phase === 'arrived' || phase === 'summary') && <View style={styles.mapDim} pointerEvents="none" />}
 
-      {/* Header: compact live ETA card + SOS */}
-      <View style={[styles.header, { top: topPad }]}>
-        {etaMin != null && distKm != null ? (
-          <Animated.View
-            style={[
-              styles.etaCard,
-              { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) }] },
-            ]}
+      {/* Corners: SOS (left) + rider avatar (right, after pickup) */}
+      <View style={[styles.corners, { top: topPad }]}>
+        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS} activeOpacity={0.85}>
+          <Ionicons name="alert-circle" size={22} color="#EF4444" />
+        </TouchableOpacity>
+        {(phase === 'arrived' || phase === 'inProgress') && (
+          <TouchableOpacity
+            style={styles.riderChipTop}
+            onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+            activeOpacity={0.85}
           >
-            <LinearGradient
-              colors={phase === 'inProgress' ? ['#22C55E', '#16A34A'] : ['#FFD000', '#FFA800']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.etaIcon}
-            >
-              <Ionicons name={phase === 'inProgress' ? 'flag' : 'navigate'} size={15} color="#000" />
-            </LinearGradient>
-            <View>
-              <Text style={styles.etaBig}>
-                {etaMin} min <Text style={styles.etaKm}>· {distKm.toFixed(1)} km</Text>
-              </Text>
-              <View style={styles.etaSubRow}>
-                <Animated.View style={[styles.livePulse, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] }) }]} />
-                <Text style={styles.etaSub} numberOfLines={1}>{statusLine} · {targetLabel}</Text>
-              </View>
-            </View>
-          </Animated.View>
-        ) : (
-          <View style={styles.livePill}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>{statusLine}</Text>
-          </View>
+            <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
+          </TouchableOpacity>
         )}
-        <View style={styles.headerRight}>
-          {phase === 'inProgress' && (
+      </View>
+
+      {/* BIG center-top ETA during navigation (Stages 2 & 4) */}
+      {(phase === 'toPickup' || phase === 'inProgress') && etaMin != null && distKm != null && (
+        <Animated.View
+          style={[
+            styles.bigEta,
+            { top: topPad, opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] },
+          ]}
+        >
+          <Text style={styles.bigEtaMin}>
+            {etaMin}<Text style={styles.bigEtaUnit}> min</Text>
+          </Text>
+          <View style={styles.bigEtaRow}>
+            <Animated.View style={[styles.livePulse, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }]} />
+            <Text style={styles.bigEtaSub}>{distKm.toFixed(1)} km · {statusLine}</Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* STAGE 2 — navigating to pickup: minimal bar (address + call + arrived) */}
+      {phase === 'toPickup' && (
+        <LinearGradient
+          colors={['#1B1B1F', '#131316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}
+        >
+          <View style={[styles.miniPin, { borderColor: 'rgba(255,208,0,0.35)', backgroundColor: 'rgba(255,208,0,0.12)' }]}>
+            <Ionicons name="navigate" size={16} color="#FFD000" />
+          </View>
+          <View style={styles.miniTextWrap}>
+            <Text style={styles.miniLabel} numberOfLines={1}>PICKUP · {riderName}</Text>
+            <Text style={styles.miniTo} numberOfLines={1}>{from}</Text>
+          </View>
+          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={18} color="#FFD000" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={arrivedAtPickup} activeOpacity={0.9}>
+            <LinearGradient colors={['#FFDE5C', '#FFB800']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.miniComplete}>
+              <Ionicons name="flag" size={16} color="#000" />
+              <Text style={styles.miniCompleteText}>Arrived</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </LinearGradient>
+      )}
+
+      {/* STAGE 3 — arrived at pickup: wait timer + call/text + start ride */}
+      {phase === 'arrived' && (
+        <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.arrivedHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.arrivedTitle}>You've arrived</Text>
+              <Text style={styles.arrivedSub} numberOfLines={1}>
+                {riderName} · {overFreeWait ? 'paid waiting' : `${FREE_WAIT_MIN} min free wait`}
+              </Text>
+            </View>
+            <View style={[styles.waitBadge, overFreeWait && { borderColor: '#EF4444' }]}>
+              <Ionicons name="time-outline" size={15} color={overFreeWait ? '#EF4444' : '#FFD000'} />
+              <Text style={[styles.waitText, overFreeWait && { color: '#EF4444' }]}>{clock(waitSec)}</Text>
+            </View>
+          </View>
+          <View style={styles.arrivedActions}>
+            <TouchableOpacity style={styles.arrivedAction} onPress={handleCall} activeOpacity={0.85}>
+              <Ionicons name="call" size={20} color="#FFD000" />
+              <Text style={styles.arrivedActionText}>Call</Text>
+            </TouchableOpacity>
             <TouchableOpacity
-              style={styles.riderChipTop}
+              style={styles.arrivedAction}
               onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
               activeOpacity={0.85}
             >
-              <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
+              <Ionicons name="chatbubble-ellipses" size={20} color="#FFD000" />
+              <Text style={styles.arrivedActionText}>Text</Text>
             </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
-            <Ionicons name="alert-circle" size={22} color="#EF4444" />
+          </View>
+          <TouchableOpacity style={styles.primaryBtn} onPress={startTrip} activeOpacity={0.85}>
+            <Ionicons name="play" size={20} color="#000" />
+            <Text style={styles.primaryText}>Start ride</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      )}
 
-      {phase === 'inProgress' ? (
-        /* In-trip: distraction-free premium drop-off sheet (full-width, flush
-           to the bottom edge — no floating gap). */
+      {/* STAGE 4 — in progress: premium drop-off sheet, END RIDE geo-gated */}
+      {phase === 'inProgress' && (
         <LinearGradient
           colors={['#1B1B1F', '#131316']}
           start={{ x: 0, y: 0 }}
@@ -284,62 +357,63 @@ export default function DriverTripScreen() {
             <Ionicons name="location" size={17} color="#EF4444" />
           </View>
           <View style={styles.miniTextWrap}>
-            <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF</Text>
+            <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF · {elapsedMin}m</Text>
             <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
           </View>
           <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
             <Ionicons name="call" size={18} color="#FFD000" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={completeTrip} activeOpacity={0.9}>
+          <TouchableOpacity onPress={endRide} disabled={!canEnd} activeOpacity={0.9}>
             <LinearGradient
-              colors={['#FFDE5C', '#FFB800']}
+              colors={canEnd ? ['#FFDE5C', '#FFB800'] : ['#2A2A2D', '#232326']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.miniComplete}
             >
-              <Ionicons name="checkmark-done" size={18} color="#000" />
-              <Text style={styles.miniCompleteText}>Complete</Text>
+              <Ionicons name="checkmark-done" size={18} color={canEnd ? '#000' : '#71717A'} />
+              <Text style={[styles.miniCompleteText, !canEnd && { color: '#71717A' }]}>{canEnd ? 'End ride' : 'Drive'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </LinearGradient>
-      ) : (
-        /* Heading to / at pickup: full rider card so the driver can identify +
-           contact the rider and confirm arrival. */
-        <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
-          <View style={styles.riderRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{riderName.charAt(0).toUpperCase()}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.riderName} numberOfLines={1}>{riderName}</Text>
-              <Text style={styles.fare}>₵{price.toFixed(2)}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.chatBtn}
-              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
-            >
-              <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.callBtn} onPress={handleCall} activeOpacity={0.85}>
-              <Ionicons name="call" size={18} color="#000" />
-            </TouchableOpacity>
-          </View>
+      )}
 
-          <View style={styles.routeBox}>
-            <View style={styles.routeRow}>
-              <View style={[styles.routeDot, { backgroundColor: '#FFD000' }]} />
-              <Text style={styles.routeText} numberOfLines={1}>{from}</Text>
+      {/* STAGE 5 — completed: fare summary + rate rider */}
+      {phase === 'summary' && (
+        <View style={[styles.summaryCard, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.summaryHandle} />
+          <View style={styles.summaryCheck}>
+            <Ionicons name="checkmark-done" size={28} color="#22C55E" />
+          </View>
+          <Text style={styles.summaryTitle}>Ride completed</Text>
+          <Text style={styles.summarySub} numberOfLines={1}>{from} → {to}</Text>
+
+          <View style={styles.fareBox}>
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Base fare</Text>
+              <Text style={styles.fareValue}>₵{baseFare.toFixed(2)}</Text>
             </View>
-            <View style={styles.routeLine} />
-            <View style={styles.routeRow}>
-              <View style={[styles.routeDot, { backgroundColor: '#EF4444' }]} />
-              <Text style={styles.routeText} numberOfLines={1}>{to}</Text>
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Distance</Text>
+              <Text style={styles.fareValue}>₵{distanceFare.toFixed(2)}</Text>
+            </View>
+            <View style={styles.fareDivider} />
+            <View style={styles.fareRow}>
+              <Text style={styles.fareTotalLabel}>Total</Text>
+              <Text style={styles.fareTotalValue}>₵{price.toFixed(2)}</Text>
             </View>
           </View>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={primary.onPress} activeOpacity={0.85}>
-            <Ionicons name={primary.icon} size={20} color="#000" />
-            <Text style={styles.primaryText}>{primary.label}</Text>
+          <Text style={styles.rateLabel}>Rate {riderName.split(' ')[0]}</Text>
+          <View style={styles.stars}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <TouchableOpacity key={n} onPress={() => { Haptics.selectionAsync(); setRating(n); }} activeOpacity={0.7}>
+                <Ionicons name={n <= rating ? 'star' : 'star-outline'} size={32} color="#FFD000" style={{ marginHorizontal: 4 }} />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.primaryBtn} onPress={finalizeRide} activeOpacity={0.85}>
+            <Text style={styles.primaryText}>Complete ride</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -443,4 +517,68 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000', borderRadius: 16, height: 56,
   },
   primaryText: { fontSize: 17, fontWeight: '800', color: '#000' },
+
+  // Corners (SOS + rider avatar)
+  corners: {
+    position: 'absolute', left: 16, right: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  // BIG center-top ETA (Stages 2 & 4)
+  bigEta: {
+    position: 'absolute', alignSelf: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(9,9,11,0.82)', borderRadius: 22,
+    borderWidth: 1, borderColor: '#27272A',
+    paddingHorizontal: 26, paddingVertical: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 10,
+  },
+  bigEtaMin: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', letterSpacing: -1, lineHeight: 38 },
+  bigEtaUnit: { color: '#A1A1AA', fontSize: 16, fontWeight: '700' },
+  bigEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  bigEtaSub: { color: '#D4D4D8', fontSize: 13, fontWeight: '600' },
+
+  // Stage 3 — arrived
+  arrivedHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  arrivedTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.3 },
+  arrivedSub: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', marginTop: 2 },
+  waitBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#1C1C1F', borderWidth: 1, borderColor: '#3F3F46',
+    borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7,
+  },
+  waitText: { color: '#FFD000', fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  arrivedActions: { flexDirection: 'row', gap: 12 },
+  arrivedAction: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1C1C1F', borderWidth: 1, borderColor: '#3F3F46',
+    borderRadius: 14, height: 52,
+  },
+  arrivedActionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  // Stage 5 — summary
+  summaryCard: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: '#131316', borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    borderTopWidth: 1, borderColor: '#27272A',
+    paddingHorizontal: 22, paddingTop: 12, alignItems: 'center', gap: 12,
+  },
+  summaryHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3F3F46' },
+  summaryCheck: {
+    width: 54, height: 54, borderRadius: 27, marginTop: 4,
+    backgroundColor: 'rgba(34,197,94,0.14)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  summaryTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
+  summarySub: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', maxWidth: '100%' },
+  fareBox: {
+    width: '100%', backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16, gap: 10,
+    borderWidth: 1, borderColor: '#27272A',
+  },
+  fareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fareLabel: { color: '#A1A1AA', fontSize: 14 },
+  fareValue: { color: '#E4E4E7', fontSize: 14, fontWeight: '600' },
+  fareDivider: { height: 1, backgroundColor: '#27272A', marginVertical: 2 },
+  fareTotalLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  fareTotalValue: { color: '#FFD000', fontSize: 18, fontWeight: '900' },
+  rateLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 2 },
+  stars: { flexDirection: 'row', marginBottom: 4 },
 });
