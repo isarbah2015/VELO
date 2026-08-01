@@ -11,7 +11,9 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
-import { distanceKm, distanceToPathKm, etaMinutes, getRoute, type RouteResult } from '@/services/geo';
+import { distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
+import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
 
@@ -59,6 +61,7 @@ export default function DriverTripScreen() {
   const [riderPos, setRiderPos] = useState<LngLat | null>(null);
   const [rating, setRating] = useState(5);
   const [now, setNow] = useState(Date.now()); // 1s ticker for wait/elapsed timers
+  const [muted, setMuted] = useState(false); // voice-guidance mute
   const startRef = useRef(0); // trip start (inProgress)
   const arrivedRef = useRef(0); // arrived-at-pickup time
   const watchRef = useRef<Location.LocationSubscription | null>(null);
@@ -68,6 +71,27 @@ export default function DriverTripScreen() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Restore the saved mute preference; stop any speech when leaving the screen.
+  useEffect(() => {
+    AsyncStorage.getItem('velo_voice_muted').then((v) => {
+      const m = v === '1';
+      setMuted(m);
+      setVoiceMuted(m);
+    });
+    return () => stopVoice();
+  }, []);
+
+  const toggleMute = () => {
+    Haptics.selectionAsync();
+    setMuted((m) => {
+      const next = !m;
+      setVoiceMuted(next);
+      AsyncStorage.setItem('velo_voice_muted', next ? '1' : '0');
+      if (!next) speak('Voice guidance on.', { interrupt: true });
+      return next;
+    });
+  };
 
   // Follow the rider's live position (streamed from their tracking screen).
   useEffect(() => {
@@ -116,6 +140,7 @@ export default function DriverTripScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     arrivedRef.current = Date.now();
     setPhase('arrived');
+    speak(`You've arrived at the pickup. Meet ${riderName.split(' ')[0]}.`, { interrupt: true });
     if (rideId) await updateRideStatus(rideId, 'arrived');
   };
 
@@ -123,6 +148,7 @@ export default function DriverTripScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPhase('inProgress');
     startRef.current = Date.now();
+    speak('Trip started. Navigating to the destination.', { interrupt: true });
     if (rideId) await updateRideStatus(rideId, 'in_progress');
   };
 
@@ -157,6 +183,7 @@ export default function DriverTripScreen() {
       await recordCompletedRide(user.uid, price);
       await refreshDriverStatus();
     }
+    speak('Ride completed.', { interrupt: true });
     setPhase('summary');
   };
 
@@ -191,6 +218,24 @@ export default function DriverTripScreen() {
   const elapsedMin = phase === 'inProgress' && startRef.current ? Math.floor((now - startRef.current) / 60000) : 0;
   const atDropoff = !!driverPos && !!destLL && distanceKm(driverPos, destLL) < ARRIVE_RADIUS_KM;
   const canEnd = !driverPos || atDropoff; // no GPS → allow; otherwise require < 50 m
+
+  // Voice: announce the approach to the drop-off once, then arrival.
+  const approachRef = useRef(false);
+  const arriveVoicedRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'inProgress' || !driverPos || !destLL) return;
+    const km = distanceKm(driverPos, destLL);
+    if (km >= 35) return; // implausible fix
+    if (!approachRef.current && km < 0.2 && km >= ARRIVE_RADIUS_KM) {
+      approachRef.current = true;
+      speak('Approaching your destination.', { interrupt: true });
+    }
+    if (!arriveVoicedRef.current && km < ARRIVE_RADIUS_KM) {
+      arriveVoicedRef.current = true;
+      speak('You have reached the destination. Tap end ride.', { interrupt: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, phase]);
   const statusLine =
     phase === 'toPickup' ? 'to pickup' : phase === 'inProgress' ? 'to destination' : '';
   // Fare breakdown for the Stage-5 summary.
@@ -243,6 +288,33 @@ export default function DriverTripScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driverPos, target]);
 
+  // Turn-by-turn voice: announce each upcoming maneuver once at ~200 m ("In 200
+  // meters, turn left onto …") and again at the turn (~40 m). We only track the
+  // next un-passed maneuver so guidance stays sequential. State resets per leg.
+  const spokenRef = useRef<{ key: string; idx: number; pre: boolean }>({ key: '', idx: 0, pre: false });
+  useEffect(() => {
+    if (muted || !driverPos || !route || route.steps.length === 0) return;
+    if (phase !== 'toPickup' && phase !== 'inProgress') return;
+    // Reset progress when the leg changes.
+    if (spokenRef.current.key !== legKey) spokenRef.current = { key: legKey, idx: 0, pre: false };
+    const s = spokenRef.current;
+    // Advance past any maneuvers we've already driven through (skip 'depart').
+    while (s.idx < route.steps.length && route.steps[s.idx].type === 'depart') s.idx++;
+    const step = route.steps[s.idx];
+    if (!step) return;
+    const d = distanceKm(driverPos, step.location) * 1000; // metres to the turn
+    if (d > 5000) return; // implausible GPS fix — don't announce
+    if (step.type === 'arrive') return; // arrival is handled separately
+    if (d <= 45) {
+      speak(maneuverText(step), { interrupt: true });
+      s.idx += 1; s.pre = false; // move on to the next maneuver
+    } else if (d <= 220 && !s.pre) {
+      speak(maneuverText(step, d));
+      s.pre = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, route, phase, muted]);
+
   // Live countdown: recompute distance from the driver's *current* position
   // straight to the target on every GPS tick (cheap, no routing API) — the
   // drawn route line stays the road geometry, but the number ticks down as the
@@ -292,20 +364,31 @@ export default function DriverTripScreen() {
       {/* Dim only behind the big cards (arrived / summary); nav views stay clean. */}
       {(phase === 'arrived' || phase === 'summary') && <View style={styles.mapDim} pointerEvents="none" />}
 
-      {/* Corners: SOS (left) + rider avatar (right, after pickup) */}
+      {/* Corners: SOS (left) + voice mute & rider avatar (right) */}
       <View style={[styles.corners, { top: topPad }]}>
         <TouchableOpacity style={styles.sosBtn} onPress={handleSOS} activeOpacity={0.85}>
           <Ionicons name="alert-circle" size={22} color="#EF4444" />
         </TouchableOpacity>
-        {(phase === 'arrived' || phase === 'inProgress') && (
-          <TouchableOpacity
-            style={styles.riderChipTop}
-            onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerRight}>
+          {phase !== 'summary' && (
+            <TouchableOpacity
+              style={[styles.muteBtn, muted && styles.muteBtnOff]}
+              onPress={toggleMute}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={20} color={muted ? '#71717A' : '#FFD000'} />
+            </TouchableOpacity>
+          )}
+          {(phase === 'arrived' || phase === 'inProgress') && (
+            <TouchableOpacity
+              style={styles.riderChipTop}
+              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* BIG center-top ETA during navigation (Stages 2 & 4) */}
@@ -483,6 +566,11 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
     borderWidth: 1, borderColor: '#3F1F22', alignItems: 'center', justifyContent: 'center',
   },
+  muteBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
+    borderWidth: 1, borderColor: '#3F3F1A', alignItems: 'center', justifyContent: 'center',
+  },
+  muteBtnOff: { borderColor: '#27272A' },
   riderChipTop: {
     width: 46, height: 46, borderRadius: 23, backgroundColor: '#FFD000',
     alignItems: 'center', justifyContent: 'center',
