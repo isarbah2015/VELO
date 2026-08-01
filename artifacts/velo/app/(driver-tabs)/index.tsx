@@ -19,6 +19,7 @@ import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide } from '@/services/driver';
 import { notifyLocal } from '@/services/notifications';
 import { tierProgress, tierCanServe } from '@/services/tiers';
+import RideRequestOverlay from '@/components/RideRequestOverlay';
 
 const { width, height } = Dimensions.get('window');
 
@@ -158,62 +159,38 @@ export default function DriverHomeScreen() {
           </View>
         )}
 
-        {incoming ? (
-          <View style={styles.requestCard}>
-            <View style={styles.requestHeader}>
-              <View style={styles.requestAvatar}>
-                <Ionicons name="person" size={20} color="#FFD000" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.requestName} numberOfLines={1}>{incoming.riderName}</Text>
-                <Text style={styles.requestType}>{incoming.type} Bike</Text>
-              </View>
-              <Text style={styles.requestFare}>₵{incoming.price.toFixed(2)}</Text>
-            </View>
-            <View style={styles.requestRouteRow}>
-              <View style={styles.dotYellow} />
-              <Text style={styles.requestRouteText} numberOfLines={1}>{incoming.from}</Text>
-            </View>
-            <View style={styles.requestRouteRow}>
-              <View style={styles.dotRed} />
-              <Text style={styles.requestRouteText} numberOfLines={1}>{incoming.to}</Text>
-            </View>
-            <View style={styles.requestActions}>
-              <TouchableOpacity style={styles.declineBtn} onPress={() => respond(incoming, false)}>
-                <Text style={styles.declineText}>Decline</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.acceptBtn} onPress={() => respond(incoming, true)}>
-                <Text style={styles.acceptText}>Accept · ₵{incoming.price.toFixed(2)}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.statusPanel}>
-            <View style={styles.statusPanelText}>
-              <Text style={styles.statusTitle}>{online ? "You're online" : "You're offline"}</Text>
-              <Text style={styles.statusSub}>
-                {online
-                  ? (loading ? 'Checking for requests…' : 'Waiting for ride requests nearby')
-                  : 'Go online to start receiving rides'}
-              </Text>
-            </View>
-            {online && loading && <ActivityIndicator color="#FFD000" />}
-          </View>
-        )}
-
-        {!incoming && (
-          <TouchableOpacity
-            style={[styles.onlineBtn, online ? styles.onlineBtnOff : styles.onlineBtnOn]}
-            onPress={toggleOnline}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="power" size={18} color={online ? '#FFFFFF' : '#000000'} />
-            <Text style={[styles.onlineBtnText, online && styles.onlineBtnTextOff]}>
-              {online ? 'Go Offline' : 'Go Online'}
+        <View style={styles.statusPanel}>
+          <View style={styles.statusPanelText}>
+            <Text style={styles.statusTitle}>{online ? "You're online" : "You're offline"}</Text>
+            <Text style={styles.statusSub}>
+              {online
+                ? (loading ? 'Checking for requests…' : 'Waiting for ride requests nearby')
+                : 'Go online to start receiving rides'}
             </Text>
-          </TouchableOpacity>
-        )}
+          </View>
+          {online && loading && <ActivityIndicator color="#FFD000" />}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.onlineBtn, online ? styles.onlineBtnOff : styles.onlineBtnOn]}
+          onPress={toggleOnline}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="power" size={18} color={online ? '#FFFFFF' : '#000000'} />
+          <Text style={[styles.onlineBtnText, online && styles.onlineBtnTextOff]}>
+            {online ? 'Go Offline' : 'Go Online'}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* STAGE 1 — full-screen ride request over the blurred dashboard */}
+      {incoming && (
+        <RideRequestOverlay
+          ride={incoming}
+          onAccept={() => respond(incoming, true)}
+          onDecline={() => respond(incoming, false)}
+        />
+      )}
     </View>
   );
 }

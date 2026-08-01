@@ -407,12 +407,12 @@ export default function DriverTripScreen() {
           <View style={styles.stars}>
             {[1, 2, 3, 4, 5].map((n) => (
               <TouchableOpacity key={n} onPress={() => { Haptics.selectionAsync(); setRating(n); }} activeOpacity={0.7}>
-                <Ionicons name={n <= rating ? 'star' : 'star-outline'} size={32} color="#FFD000" style={{ marginHorizontal: 4 }} />
+                <Ionicons name={n <= rating ? 'star' : 'star-outline'} size={30} color="#FFD000" style={{ marginHorizontal: 4 }} />
               </TouchableOpacity>
             ))}
           </View>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={finalizeRide} activeOpacity={0.85}>
+          <TouchableOpacity style={[styles.primaryBtn, { width: '100%' }]} onPress={finalizeRide} activeOpacity={0.85}>
             <Text style={styles.primaryText}>Complete ride</Text>
           </TouchableOpacity>
         </View>
@@ -559,19 +559,19 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0,
     backgroundColor: '#131316', borderTopLeftRadius: 28, borderTopRightRadius: 28,
     borderTopWidth: 1, borderColor: '#27272A',
-    paddingHorizontal: 22, paddingTop: 12, alignItems: 'center', gap: 12,
+    paddingHorizontal: 22, paddingTop: 10, alignItems: 'center', gap: 8,
   },
   summaryHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3F3F46' },
   summaryCheck: {
-    width: 54, height: 54, borderRadius: 27, marginTop: 4,
+    width: 46, height: 46, borderRadius: 23, marginTop: 2,
     backgroundColor: 'rgba(34,197,94,0.14)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.4)',
     alignItems: 'center', justifyContent: 'center',
   },
-  summaryTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
+  summaryTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.4 },
   summarySub: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', maxWidth: '100%' },
   fareBox: {
-    width: '100%', backgroundColor: '#1C1C1F', borderRadius: 16, padding: 16, gap: 10,
-    borderWidth: 1, borderColor: '#27272A',
+    width: '100%', backgroundColor: '#1C1C1F', borderRadius: 16, padding: 14, gap: 8,
+    borderWidth: 1, borderColor: '#27272A', marginTop: 2,
   },
   fareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   fareLabel: { color: '#A1A1AA', fontSize: 14 },
@@ -579,6 +579,6 @@ const styles = StyleSheet.create({
   fareDivider: { height: 1, backgroundColor: '#27272A', marginVertical: 2 },
   fareTotalLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   fareTotalValue: { color: '#FFD000', fontSize: 18, fontWeight: '900' },
-  rateLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 2 },
-  stars: { flexDirection: 'row', marginBottom: 4 },
+  rateLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 4 },
+  stars: { flexDirection: 'row', marginBottom: 6 },
 });
