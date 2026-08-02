@@ -58,8 +58,9 @@ const SLIDES: {
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
       imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
-      colors: ['#0A1F2E', '#0A1424', '#09090B'],
-      glow: 'rgba(255,208,0,0.22)',
+      // Yellow → black brand gradient.
+      colors: ['#3D3000', '#141000', '#09090B'],
+      glow: 'rgba(255,208,0,0.28)',
     },
   },
   {
@@ -68,14 +69,15 @@ const SLIDES: {
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
-    // Premium bike — shown whole in the top area (no crop), text sits below.
+    // Premium bike is a black-on-black Kawasaki — a tight crop would vanish, so
+    // show the WHOLE bike (gold accents + forks give contrast) centred up top.
     bg: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
-      // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
-      colors: ['#0A2A1C', '#0A1A14', '#09090B'],
-      glow: 'rgba(34,197,94,0.22)',
+      imageStyle: { transform: [{ scale: 1.12 }] },
+      // Yellow → black brand gradient (matches slide 2).
+      colors: ['#3D3000', '#141000', '#09090B'],
+      glow: 'rgba(255,208,0,0.28)',
     },
   },
 ];
@@ -181,6 +183,13 @@ export default function OnboardingScreen() {
             front quarter; the screen edges do the cropping. */}
         {isContain && slide.bg.image && (
           <View style={styles.heroClip}>
+            {/* Soft radial-ish glow so a dark bike separates from the backdrop. */}
+            <LinearGradient
+              colors={[slide.bg.glow, 'transparent']}
+              start={{ x: 0.5, y: 0.35 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             <Image
               source={slide.bg.image}
               style={[styles.heroImg, slide.bg.imageStyle]}
@@ -331,16 +340,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 40,
+    fontSize: 30,
     fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 46,
+    lineHeight: 36,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#D4D4D8',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   footer: {
     paddingHorizontal: 24,

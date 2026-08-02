@@ -9,12 +9,15 @@ export default function IndexScreen() {
 
   useEffect(() => {
     if (isLoading) return;
-    if (!isOnboarded) {
-      router.replace('/onboarding');
-    } else if (!isAuthenticated) {
-      router.replace('/(auth)/login');
-    } else {
+    // Auth wins: a returning, signed-in user goes straight to their app — they
+    // never see the welcome/onboarding again, even on a fresh install where the
+    // onboarding flag isn't set yet.
+    if (isAuthenticated) {
       router.replace(role === 'driver' ? '/(driver-tabs)' : '/(tabs)');
+    } else if (!isOnboarded) {
+      router.replace('/onboarding');
+    } else {
+      router.replace('/(auth)/login');
     }
   }, [isLoading, isOnboarded, isAuthenticated, role]);
 

@@ -18,6 +18,7 @@ import { useApp, type Role } from '@/context/AppContext';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
 import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
+import { tierProgress } from '@/services/tiers';
 import {
   LANGUAGES, getLanguage, setLanguage, languageLabel, type LanguageCode,
 } from '@/services/settings';
@@ -270,6 +271,39 @@ export default function ProfileScreen() {
                   </View>
                   <Text style={styles.loyaltyNext}>
                     {rt.ridesToNext} more {rt.ridesToNext === 1 ? 'ride' : 'rides'} to {rt.next.emoji} {rt.next.label}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.loyaltyNext}>You&apos;ve reached the top tier 🎉</Text>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* Driver tier — climbs Standard → Premium → Okada Bossu with lifetime
+            rides + rating. Shows current tier and rides left to the next. */}
+        {isDriver && (() => {
+          const tp = tierProgress(driverStatus?.totalRides ?? 0, driverStatus?.rating ?? 5);
+          const EMOJI: Record<string, string> = { standard: '🛵', premium: '⚡', bossu: '👑' };
+          return (
+            <View style={styles.loyaltyCard}>
+              <View style={styles.loyaltyHeader}>
+                <Text style={styles.loyaltyTier}>{EMOJI[tp.tier]} {tp.current.label} driver</Text>
+                <View style={styles.loyaltyBadge}>
+                  <Text style={styles.loyaltyBadgeText}>{driverStatus?.totalRides ?? 0} rides</Text>
+                </View>
+              </View>
+              <Text style={styles.loyaltyPerk}>{tp.current.blurb}</Text>
+              {tp.next ? (
+                <>
+                  <View style={styles.loyaltyBarTrack}>
+                    <View style={[styles.loyaltyBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.loyaltyNext}>
+                    {tp.ridesToNext > 0
+                      ? `${tp.ridesToNext} more ${tp.ridesToNext === 1 ? 'ride' : 'rides'} to ${EMOJI[tp.next.tier]} ${tp.next.label}`
+                      : `Keep a ${tp.next.minRating.toFixed(1)}★ rating to reach ${EMOJI[tp.next.tier]} ${tp.next.label}`}
+                    {tp.ratingNeeded && tp.ridesToNext > 0 ? ` · needs ${tp.ratingNeeded.toFixed(1)}★` : ''}
                   </Text>
                 </>
               ) : (
