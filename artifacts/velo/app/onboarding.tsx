@@ -69,12 +69,23 @@ const SLIDES: {
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
-    // Premium bike is a black-on-black Kawasaki — a tight crop would vanish, so
-    // show the WHOLE bike (gold accents + forks give contrast) centred up top.
+    // Premium bike flipped vertically so it hangs from the top of the phone: the
+    // gold front wheel + USD forks fill the top band down to mid-screen, the rest
+    // fading into the dark for the text below. Transform order matters — translate
+    // is listed first so it applies in final screen space (RN composes last→first);
+    // scaleY:-1 does the flip, scale 1.8 crops to ~a quarter of the bike. Framing
+    // reverse-engineered from a per-pixel render of this exact PNG.
     bg: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
-      imageStyle: { transform: [{ scale: 1.12 }] },
+      imageStyle: {
+        transform: [
+          { translateX: -width * 0.54 },
+          { translateY: height * 0.032 },
+          { scale: 1.8 },
+          { scaleY: -1 },
+        ],
+      },
       // Yellow → black brand gradient (matches slide 2).
       colors: ['#3D3000', '#141000', '#09090B'],
       glow: 'rgba(255,208,0,0.28)',
