@@ -1,5 +1,11 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, initializeAuth } from 'firebase/auth';
+// The React Native build of Firebase Auth (index.rn) exposes
+// getReactNativePersistence; the base `firebase/auth` types don't, so import it
+// from `@firebase/auth` (Metro resolves this to the RN entry at runtime).
+// @ts-ignore — transitive package with no direct type path; resolved by Metro.
+import { getReactNativePersistence } from '@firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -14,14 +20,20 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// firebase v12's `firebase/auth` subpath export doesn't route to the
-// React Native build (its exports map has no "react-native" condition —
-// only `@firebase/auth` directly does), so `getReactNativePersistence`
-// isn't reliably resolvable from here. Falling back to plain `getAuth`
-// means native sessions are in-memory only and won't survive an app
-// restart — acceptable for now, revisit if persistent native sessions
-// become a requirement.
-export const auth = getAuth(app);
+// Persist the native auth session in AsyncStorage so a signed-in user stays
+// signed in across app restarts. initializeAuth must run exactly once per app;
+// on a Fast-Refresh re-run it throws "already-initialized", so fall back to
+// getAuth in that case.
+function initAuth() {
+  try {
+    return initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } catch {
+    return getAuth(app);
+  }
+}
+export const auth = initAuth();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export default app;
