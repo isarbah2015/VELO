@@ -136,8 +136,30 @@ export default function DriverHomeScreen() {
     return unsub;
   }, [online]);
 
+  // A driver must clear Ghana Card / vehicle verification before they can go
+  // online and receive requests. Read the review state off the driver doc.
+  const verifyStatus = driverStatus?.verification?.status ?? 'unverified';
+  const isVerified = verifyStatus === 'verified';
+
   const toggleOnline = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Gate: block going online until verified. Toggling offline is always fine.
+    if (!online && !isVerified) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        verifyStatus === 'pending' ? 'Verification under review' : 'Verification required',
+        verifyStatus === 'pending'
+          ? "Your documents are being reviewed. You'll be able to go online once approved."
+          : 'Submit your Ghana Card and motorcycle photos to start accepting rides.',
+        verifyStatus === 'pending'
+          ? [{ text: 'OK' }]
+          : [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Verify now', onPress: () => router.push('/driver-verify') },
+            ]
+      );
+      return;
+    }
     setOnline(!online);
   };
 
@@ -193,7 +215,7 @@ export default function DriverHomeScreen() {
   // Surface only requests this driver's tier can serve (a Standard driver won't
   // get Premium/Bossu rides until promoted), ordered nearest-first when we have
   // the driver's GPS so the closest rider is offered before farther ones.
-  const eligible = online ? requests.filter((r) => tierCanServe(tp.tier, r.type)) : [];
+  const eligible = online && isVerified ? requests.filter((r) => tierCanServe(tp.tier, r.type)) : [];
   const incoming = driverLL
     ? [...eligible].sort((a, b) => {
         const da = a.fromCoord ? distanceKm(driverLL, [a.fromCoord.lng, a.fromCoord.lat]) : Infinity;
@@ -249,6 +271,37 @@ export default function DriverHomeScreen() {
               <Text style={styles.tierNext}>Top tier 🎉</Text>
             )}
           </View>
+        )}
+
+        {/* Verification gate banner — an unverified/pending/rejected driver
+            can't go online, so surface a clear CTA to finish verification. */}
+        {!isVerified && (
+          <TouchableOpacity
+            style={styles.verifyBanner}
+            onPress={() => router.push('/driver-verify')}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={verifyStatus === 'pending' ? 'time-outline' : 'shield-outline'}
+              size={20}
+              color={verifyStatus === 'pending' ? '#FFD000' : '#EF4444'}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.verifyBannerTitle}>
+                {verifyStatus === 'pending'
+                  ? 'Verification under review'
+                  : verifyStatus === 'rejected'
+                  ? 'Verification rejected — resubmit'
+                  : 'Get verified to go online'}
+              </Text>
+              <Text style={styles.verifyBannerSub}>
+                {verifyStatus === 'pending'
+                  ? "We'll notify you once approved."
+                  : 'Upload your Ghana Card and motorcycle photos.'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#71717A" />
+          </TouchableOpacity>
         )}
 
         <View style={styles.statusPanel}>
@@ -368,6 +421,18 @@ const styles = StyleSheet.create({
   statusPanelText: { flex: 1, gap: 3 },
   statusTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
   statusSub: { color: '#71717A', fontSize: 13 },
+  verifyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(28,28,31,0.96)',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#3A2A2D',
+  },
+  verifyBannerTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  verifyBannerSub: { color: '#71717A', fontSize: 12, marginTop: 2 },
   onlineBtn: {
     flexDirection: 'row',
     alignItems: 'center',

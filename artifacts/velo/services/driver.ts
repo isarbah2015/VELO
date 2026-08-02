@@ -1,6 +1,7 @@
 import { doc, updateDoc, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { updateRideStatus } from './rides';
+import type { VerificationData } from './verification';
 
 export interface DriverStatus {
   online: boolean;
@@ -11,6 +12,7 @@ export interface DriverStatus {
   rating: number;
   acceptanceRate: number;
   cancellationRate: number;
+  verification?: VerificationData; // Ghana Card / vehicle review state
 }
 
 export async function setOnlineStatus(uid: string, online: boolean) {
