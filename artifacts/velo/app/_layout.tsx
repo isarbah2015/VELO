@@ -105,12 +105,10 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
-
+  // Note: the native splash is NOT hidden here on font-load — AnimatedSplash
+  // hides it on its own first paint (onLayout) so the native V logo stays up
+  // continuously until the animated V is on screen underneath it. One logo,
+  // no blank frame, no second splash.
   if (!fontsLoaded && !fontError) return null;
 
   return (

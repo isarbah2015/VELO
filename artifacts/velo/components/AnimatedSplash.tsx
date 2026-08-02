@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, Easing, Image, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, Line, RadialGradient, Rect, Stop } from 'react-native-svg';
+import * as SplashScreen from 'expo-splash-screen';
 
 const { width, height } = Dimensions.get('window');
 
@@ -61,8 +62,13 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
   const glowSize = width * 1.1;
   const ringSize = width * 0.62;
 
+  // Hide the native splash only once this animated splash has painted its first
+  // frame — the native V logo hands directly to the animated V with no blank
+  // frame in between, so the user sees a single continuous splash.
+  const hideNative = () => { SplashScreen.hideAsync().catch(() => {}); };
+
   return (
-    <Animated.View style={[styles.container, { opacity: fadeOut }]}>
+    <Animated.View style={[styles.container, { opacity: fadeOut }]} onLayout={hideNative}>
       {/* Tech backdrop */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Rect width={width} height={height} fill="#09090B" />
