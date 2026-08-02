@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -74,6 +76,23 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Password recovery. VELO accounts are phone-based and use a synthetic
+  // (non-deliverable) auth email, so a standard reset-email link can't reach
+  // the rider. Until SMS OTP recovery is wired, route them to support — an
+  // honest path rather than a fake "reset email sent" confirmation.
+  const handleForgotPassword = () => {
+    Haptics.selectionAsync();
+    Alert.alert(
+      'Reset your password',
+      'VELO accounts are secured with your phone number. To reset your password, contact our support team and we\'ll verify your identity and help you back in.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'WhatsApp support', onPress: () => Linking.openURL('https://wa.me/233200000000').catch(() => {}) },
+        { text: 'Call support', onPress: () => Linking.openURL('tel:+233200000000').catch(() => {}) },
+      ]
+    );
+  };
 
   const handleLogin = async () => {
     setError('');
@@ -180,7 +199,7 @@ export default function LoginScreen() {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <TouchableOpacity style={styles.forgotLink}>
+            <TouchableOpacity style={styles.forgotLink} onPress={handleForgotPassword}>
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
 

@@ -49,6 +49,7 @@ export async function createRide(input: {
   price: number;
   scheduledFor?: string;
   paymentMethod?: string;
+  promoCode?: string | null;
 }): Promise<string> {
   const ref = await addDoc(ridesCol, {
     ...input,
@@ -57,6 +58,7 @@ export async function createRide(input: {
     toCoord: input.toCoord ?? null,
     scheduledFor: input.scheduledFor ?? null,
     paymentMethod: input.paymentMethod ?? 'cash',
+    promoCode: input.promoCode ?? null,
     settled: false, // set true once the fare is settled (server-side on complete)
     driverId: null,
     driverName: null,

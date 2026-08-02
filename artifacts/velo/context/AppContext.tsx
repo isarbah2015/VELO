@@ -4,6 +4,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import * as authService from '@/services/auth';
 import * as rideService from '@/services/rides';
 import * as paymentService from '@/services/payments';
+import * as placeService from '@/services/places';
 import * as driverService from '@/services/driver';
 import type { DriverStatus } from '@/services/driver';
 import { registerForPushNotifications } from '@/services/notifications';
@@ -85,10 +86,14 @@ interface AppContextType {
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
 
-  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string }) => Promise<string>;
+  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => Promise<string>;
   refreshRides: () => Promise<void>;
   cancelRide: (rideId: string) => Promise<void>;
   completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => Promise<void>;
+
+  savedPlaces: placeService.SavedPlace[];
+  addSavedPlace: (label: string, address: string) => Promise<void>;
+  removeSavedPlace: (id: string) => Promise<void>;
 
   addPaymentMethod: (method: Omit<PaymentMethod, 'id'>) => Promise<void>;
   removePaymentMethod: (id: string) => Promise<void>;
@@ -120,6 +125,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
+  const [savedPlaces, setSavedPlaces] = useState<placeService.SavedPlace[]>([]);
   const [navMarker, setNavMarkerState] = useState<NavMarker>(DEFAULT_NAV_MARKER);
 
   useEffect(() => {
@@ -147,6 +153,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(rideHistory);
     setPaymentMethods(methods);
     paymentService.getTransactions(uid).then(setWalletTransactions);
+    placeService.getPlaces(uid).then(setSavedPlaces).catch(() => setSavedPlaces([]));
     if (role === 'driver') {
       driverService.getDriverStatus(uid).then(setDriverStatus);
     }
@@ -176,6 +183,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPaymentMethods([]);
         setWalletTransactions([]);
         setDriverStatus(null);
+        setSavedPlaces([]);
       }
       // After the FIRST callback, auth is initialized — even if it's null
       if (firstCallback) {
@@ -227,7 +235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(await rideService.getRideHistory(firebaseUser.uid, 'rider'));
   }, [firebaseUser]);
 
-  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string }) => {
+  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => {
     if (!firebaseUser || !profile) throw new Error('Not signed in');
     // Geocode the typed addresses so the driver's map shows the real pickup +
     // destination (falls back to null → default coords if lookup fails).
@@ -273,6 +281,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getDefaultPayment = useCallback((): PaymentMethod | null => {
     return paymentMethods.find((m) => m.isDefault) ?? paymentMethods[0] ?? null;
   }, [paymentMethods]);
+
+  const addSavedPlace = useCallback(async (label: string, address: string) => {
+    if (!firebaseUser) return;
+    await placeService.addPlace(firebaseUser.uid, label, address);
+    setSavedPlaces(await placeService.getPlaces(firebaseUser.uid));
+  }, [firebaseUser]);
+
+  const removeSavedPlace = useCallback(async (id: string) => {
+    if (!firebaseUser) return;
+    await placeService.removePlace(firebaseUser.uid, id);
+    setSavedPlaces((prev) => prev.filter((p) => p.id !== id));
+  }, [firebaseUser]);
 
   const topUpWallet = useCallback(async (amount: number, methodId: string) => {
     if (!firebaseUser) return;
@@ -331,6 +351,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshRides,
     cancelRide,
     completeRide,
+    savedPlaces,
+    addSavedPlace,
+    removeSavedPlace,
     addPaymentMethod,
     removePaymentMethod,
     setDefaultPayment,
@@ -343,6 +366,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNavMarker,
   }), [
     isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    savedPlaces, addSavedPlace, removeSavedPlace,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline, navMarker, setNavMarker,

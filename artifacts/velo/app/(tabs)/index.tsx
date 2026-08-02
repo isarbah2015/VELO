@@ -20,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
+import { applyPromo } from '@/services/promo';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -91,7 +92,7 @@ type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide, walletBalance, rides } = useApp();
+  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace } = useApp();
   // Rider loyalty: completed trips drive the tier + its standing fare discount.
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
@@ -132,14 +133,17 @@ export default function HomeScreen() {
     setBookingState('confirm');
   };
 
-  const handleConfirmRide = async (scheduledFor?: string, payMethod: PayMethod = 'cash') => {
+  const handleConfirmRide = async (scheduledFor?: string, payMethod: PayMethod = 'cash', finalFare?: number, promoCode?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     const base = {
       from: pickup,
       to: destination,
       type: rideTypeFor(selectedBike.id),
-      price: effFare(selectedBike.id),
+      // Use the fare the rider actually confirmed (loyalty + promo applied);
+      // fall back to the loyalty-only fare for the scheduled path.
+      price: finalFare ?? effFare(selectedBike.id),
       paymentMethod: payMethod,
+      promoCode: promoCode ?? null,
     };
 
     // Scheduled rides are created for later — no live search now. They land
@@ -234,6 +238,48 @@ export default function HomeScreen() {
               returnKeyType="done"
             />
           </View>
+        </View>
+
+        {/* Saved places — one-tap destination fill + save the current one. */}
+        <View style={styles.placesRow}>
+          {savedPlaces.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={styles.placeChip}
+              onPress={() => { Haptics.selectionAsync(); setDestination(p.address); }}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                Alert.alert('Remove saved place', `Remove "${p.label}"?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeSavedPlace(p.id).catch(() => {}) },
+                ]);
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={(p.icon ?? 'bookmark') as keyof typeof Ionicons.glyphMap} size={13} color="#FFD000" />
+              <Text style={styles.placeChipText} numberOfLines={1}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={styles.placeAddChip}
+            onPress={() => {
+              const dest = destination.trim();
+              if (!dest) { Alert.alert('No destination', 'Enter a destination to save it.'); return; }
+              if (Alert.prompt) {
+                Alert.prompt('Save place', `Label for "${dest}"`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Save', onPress: (label?: string) => { if (label?.trim()) addSavedPlace(label.trim(), dest).catch(() => {}); } },
+                ], 'plain-text', 'Home');
+              } else {
+                // Android has no Alert.prompt — save with the first word as label.
+                addSavedPlace(dest.split(',')[0].slice(0, 20) || 'Saved', dest).catch(() => {});
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add" size={14} color="#A1A1AA" />
+            <Text style={styles.placeAddText}>Save</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -360,14 +406,34 @@ function ConfirmView({
   destination: string;
   walletBalance: number;
   completedRides: number;
-  onConfirm: (scheduledFor?: string, payMethod?: PayMethod) => void;
+  onConfirm: (scheduledFor?: string, payMethod?: PayMethod, finalFare?: number, promoCode?: string) => void;
   onCancel: () => void;
 }) {
   const [scheduleMin, setScheduleMin] = useState(0);
   const scheduled = scheduleMin > 0;
   const baseFare = fareFor(bike.id);
-  const fare = applyRiderDiscount(baseFare, completedRides); // loyalty-adjusted
-  const saved = Math.round((baseFare - fare) * 100) / 100;
+  const loyaltyFare = applyRiderDiscount(baseFare, completedRides); // loyalty-adjusted
+  const saved = Math.round((baseFare - loyaltyFare) * 100) / 100;
+
+  // Promo code applied on top of the loyalty fare.
+  const [promoInput, setPromoInput] = useState('');
+  const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [promoErr, setPromoErr] = useState('');
+  const fare = promo ? Math.round((loyaltyFare - promo.discount) * 100) / 100 : loyaltyFare;
+
+  const tryPromo = () => {
+    const res = applyPromo(promoInput, loyaltyFare);
+    if (res.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPromo({ code: res.promo.code, discount: res.discount });
+      setPromoErr('');
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setPromo(null);
+      setPromoErr(res.reason);
+    }
+  };
+
   const walletOk = walletBalance >= fare;
   // Default to wallet when it covers the fare, otherwise cash.
   const [payMethod, setPayMethod] = useState<PayMethod>(walletOk ? 'wallet' : 'cash');
@@ -417,7 +483,7 @@ function ConfirmView({
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Est. Fare</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {saved > 0 && <Text style={styles.fareStrike}>₵{baseFare.toFixed(2)}</Text>}
+            {baseFare - fare > 0.001 && <Text style={styles.fareStrike}>₵{baseFare.toFixed(2)}</Text>}
             <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵{fare.toFixed(2)}</Text>
           </View>
         </View>
@@ -425,6 +491,12 @@ function ConfirmView({
           <View style={styles.confirmDetailRow}>
             <Text style={styles.confirmDetailLabel}>Loyalty discount</Text>
             <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>−₵{saved.toFixed(2)}</Text>
+          </View>
+        )}
+        {promo && (
+          <View style={styles.confirmDetailRow}>
+            <Text style={styles.confirmDetailLabel}>Promo {promo.code}</Text>
+            <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>−₵{promo.discount.toFixed(2)}</Text>
           </View>
         )}
         <View style={styles.confirmDetailRow}>
@@ -459,9 +531,44 @@ function ConfirmView({
         )}
       </View>
 
+      {/* Promo code */}
+      <View style={{ gap: 8 }}>
+        <Text style={styles.scheduleLabel}>Promo code</Text>
+        <View style={styles.promoRow}>
+          <TextInput
+            style={styles.promoInput}
+            value={promoInput}
+            onChangeText={(t) => { setPromoInput(t); setPromoErr(''); }}
+            placeholder="Enter code (e.g. VELO10)"
+            placeholderTextColor="#52525B"
+            autoCapitalize="characters"
+            editable={!promo}
+          />
+          {promo ? (
+            <TouchableOpacity
+              style={styles.promoBtnClear}
+              onPress={() => { setPromo(null); setPromoInput(''); Haptics.selectionAsync(); }}
+            >
+              <Ionicons name="close" size={18} color="#EF4444" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.promoBtn} onPress={tryPromo} disabled={!promoInput.trim()}>
+              <Text style={styles.promoBtnText}>Apply</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {promo && <Text style={styles.promoOk}>✓ {promo.code} applied — you save ₵{promo.discount.toFixed(2)}</Text>}
+        {promoErr ? <Text style={styles.promoErr}>{promoErr}</Text> : null}
+      </View>
+
       <TouchableOpacity
         style={styles.bookNowBtn}
-        onPress={() => onConfirm(scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined, payMethod)}
+        onPress={() => onConfirm(
+          scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined,
+          payMethod,
+          fare,
+          promo?.code,
+        )}
         activeOpacity={0.85}
       >
         <Text style={styles.bookNowText}>{scheduled ? 'Schedule Ride' : 'Confirm Ride'}</Text>
@@ -832,6 +939,67 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   fareRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  placesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  placeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: 140,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,208,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,208,0,0.25)',
+  },
+  placeChipText: { color: '#E4E4E7', fontSize: 12, fontWeight: '600' },
+  placeAddChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderStyle: 'dashed',
+  },
+  placeAddText: { color: '#A1A1AA', fontSize: 12, fontWeight: '600' },
+  promoRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  promoInput: {
+    flex: 1,
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  promoBtn: {
+    backgroundColor: 'rgba(255,208,0,0.14)',
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  promoBtnText: { color: '#FFD000', fontSize: 14, fontWeight: '700' },
+  promoBtnClear: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239,68,68,0.12)',
+  },
+  promoOk: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
+  promoErr: { color: '#EF4444', fontSize: 12 },
   farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
   fareStrike: { fontSize: 14, color: '#71717A', fontWeight: '600', textDecorationLine: 'line-through' },
   fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
