@@ -1,3 +1,4 @@
+// Runtime: Node.js 22 (see engines in package.json + runtime in firebase.json).
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
