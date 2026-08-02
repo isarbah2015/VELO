@@ -7,7 +7,6 @@ import { useApp } from '@/context/AppContext';
 
 const TAB_DEFS: TabDef[] = [
   { name: 'index', label: 'Home', icon: 'home-outline', iconActive: 'home' },
-  { name: 'map', label: 'Map', icon: 'map-outline', iconActive: 'map' },
   { name: 'rides', label: 'Rides', icon: 'receipt-outline', iconActive: 'receipt' },
   { name: 'profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
@@ -18,10 +17,6 @@ function NativeTabLayout() {
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: 'house', selected: 'house.fill' }} />
         <Label>Home</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="map">
-        <Icon sf={{ default: 'map', selected: 'map.fill' }} />
-        <Label>Map</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="rides">
         <Icon sf={{ default: 'doc.text', selected: 'doc.text.fill' }} />
@@ -42,7 +37,6 @@ function ClassicTabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" />
-      <Tabs.Screen name="map" />
       <Tabs.Screen name="rides" />
       <Tabs.Screen name="profile" />
     </Tabs>
