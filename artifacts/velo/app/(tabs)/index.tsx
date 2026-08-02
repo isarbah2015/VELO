@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Dimensions,
+  Easing,
   Image,
   Linking,
   Modal,
@@ -12,7 +14,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
+import { getOnlineDriverCount } from '@/services/driver';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -104,6 +106,8 @@ export default function HomeScreen() {
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
+  const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
 
   const isWeb = Platform.OS === 'web';
@@ -156,6 +160,10 @@ export default function HomeScreen() {
       return;
     }
 
+    // Stash the confirmed fare + method so the searching card can recap them,
+    // and fetch how many drivers are online to ground the wait.
+    setSearchInfo({ fare: base.price, payMethod });
+    getOnlineDriverCount().then(setOnlineCount).catch(() => {});
     setBookingState('searching');
     const rideId = await requestRide(base);
     setActiveRideId(rideId);
@@ -353,7 +361,16 @@ export default function HomeScreen() {
                 onCancel={() => setBookingState('idle')}
               />
             )}
-            {bookingState === 'searching' && <SearchingView />}
+            {bookingState === 'searching' && (
+              <SearchingView
+                pickup={pickup}
+                destination={destination}
+                fare={searchInfo?.fare ?? effFare(selectedBike.id)}
+                payMethod={searchInfo?.payMethod ?? 'cash'}
+                onlineCount={onlineCount}
+                onCancel={handleCloseBooking}
+              />
+            )}
             {bookingState === 'found' && (
               <FoundView
                 driverName={matchedRide?.driverName ?? 'Your VELO driver'}
@@ -580,13 +597,100 @@ function ConfirmView({
   );
 }
 
-function SearchingView() {
+const PAY_LABEL: Record<PayMethod, string> = { wallet: 'VELO Wallet', cash: 'Cash', momo: 'Mobile Money' };
+
+function SearchingView({
+  pickup,
+  destination,
+  fare,
+  payMethod,
+  onlineCount,
+  onCancel,
+}: {
+  pickup: string;
+  destination: string;
+  fare: number;
+  payMethod: PayMethod;
+  onlineCount: number | null;
+  onCancel: () => void;
+}) {
+  // Elapsed timer — a moving number reassures the rider the search is live.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const mm = Math.floor(elapsed / 60);
+  const ss = String(elapsed % 60).padStart(2, '0');
+
+  // Two staggered radar rings pulsing out from the bike — the "we're looking"
+  // motion riders expect from Uber/Bolt.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(pulse, { toValue: 1, duration: 2000, easing: Easing.out(Easing.ease), useNativeDriver: true })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const ring = (delay: number) => ({
+    opacity: pulse.interpolate({ inputRange: [0, delay, 1], outputRange: [0.5, 0.35, 0] }),
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4 + delay, 1.8] }) }],
+  });
+
   return (
-    <View style={{ alignItems: 'center', gap: 20, paddingVertical: 24 }}>
+    <View style={{ gap: 18, paddingVertical: 8 }}>
       <View style={styles.sheetHandle} />
-      <ActivityIndicator size="large" color="#FFD000" />
-      <Text style={styles.sheetTitle}>Finding your rider...</Text>
-      <Text style={styles.sheetSubtitle}>Connecting you with a nearby VELO rider</Text>
+
+      {/* Radar pulse with the VELO bike at the centre */}
+      <View style={styles.radarWrap}>
+        <Animated.View style={[styles.radarRing, ring(0)]} />
+        <Animated.View style={[styles.radarRing, ring(0.4)]} />
+        <View style={styles.radarCore}>
+          <Ionicons name="bicycle" size={30} color="#000" />
+        </View>
+      </View>
+
+      <View style={{ alignItems: 'center', gap: 4 }}>
+        <Text style={styles.sheetTitle}>Finding your driver…</Text>
+        <Text style={styles.sheetSubtitle}>
+          {onlineCount == null
+            ? 'Connecting you with a nearby VELO driver'
+            : onlineCount > 0
+            ? `Reaching out to ${onlineCount} driver${onlineCount === 1 ? '' : 's'} online near you`
+            : 'Waiting for a driver to come online nearby'}
+        </Text>
+        <Text style={styles.searchTimer}>{mm}:{ss}</Text>
+      </View>
+
+      {/* Trip recap so the rider can confirm details while they wait */}
+      <View style={styles.searchRecap}>
+        <View style={styles.searchRouteRow}>
+          <View style={styles.routeDotYellow} />
+          <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
+        </View>
+        <View style={styles.searchRouteConnector} />
+        <View style={styles.searchRouteRow}>
+          <View style={styles.routeDotRedSm} />
+          <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
+        </View>
+        <View style={styles.searchDivider} />
+        <View style={styles.searchMetaRow}>
+          <View style={styles.searchMeta}>
+            <Ionicons name="pricetag-outline" size={15} color="#71717A" />
+            <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+          </View>
+          <View style={styles.searchMeta}>
+            <Ionicons name="card-outline" size={15} color="#71717A" />
+            <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+          </View>
+        </View>
+      </View>
+
+      <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
+        <Text style={styles.searchCancelText}>Cancel search</Text>
+      </TouchableOpacity>
+      <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
     </View>
   );
 }
@@ -1094,7 +1198,69 @@ const styles = StyleSheet.create({
   sheetSubtitle: {
     fontSize: 14,
     color: '#71717A',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
+  radarWrap: {
+    alignSelf: 'center',
+    width: 140,
+    height: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radarRing: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 2,
+    borderColor: '#FFD000',
+  },
+  radarCore: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFD000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchTimer: {
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFD000',
+    fontVariant: ['tabular-nums'],
+  },
+  searchRecap: {
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    gap: 8,
+  },
+  searchRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  searchRouteText: { flex: 1, fontSize: 14, color: '#E4E4E7', fontWeight: '500' },
+  searchRouteConnector: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#3F3F46',
+    marginLeft: 4,
+  },
+  searchDivider: { height: 1, backgroundColor: '#27272A', marginVertical: 4 },
+  searchMetaRow: { flexDirection: 'row', gap: 20 },
+  searchMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  searchMetaText: { fontSize: 14, color: '#FFFFFF', fontWeight: '600' },
+  searchCancelBtn: {
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderRadius: 14,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCancelText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
+  searchCancelNote: { fontSize: 12, color: '#52525B', textAlign: 'center' },
   confirmRoute: {
     backgroundColor: '#1C1C1F',
     borderRadius: 14,

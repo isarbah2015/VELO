@@ -19,6 +19,20 @@ export async function setOnlineStatus(uid: string, online: boolean) {
   await updateDoc(doc(db, 'drivers', uid), { online, updatedAt: serverTimestamp() });
 }
 
+// How many drivers are online right now — shown on the rider's "finding a
+// driver" screen so the wait feels grounded ("4 VELO drivers online") rather
+// than an anonymous spinner. A cheap count query, best-effort.
+export async function getOnlineDriverCount(): Promise<number> {
+  try {
+    const { getCountFromServer, query, where, collection } = await import('firebase/firestore');
+    const q = query(collection(db, 'drivers'), where('online', '==', true));
+    const snap = await getCountFromServer(q);
+    return snap.data().count;
+  } catch {
+    return 0;
+  }
+}
+
 export async function getDriverStatus(uid: string): Promise<DriverStatus | null> {
   const snap = await getDoc(doc(db, 'drivers', uid));
   if (!snap.exists()) return null;
