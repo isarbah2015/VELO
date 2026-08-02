@@ -20,7 +20,7 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
     // slow so the reveal feels premium rather than a fast whirl.
     Animated.timing(spin, {
       toValue: 3,
-      duration: 5000,
+      duration: 2400,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
@@ -38,13 +38,13 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
       Animated.timing(ping, { toValue: 1, duration: 2600, easing: Easing.out(Easing.ease), useNativeDriver: true })
     ).start();
 
-    Animated.timing(wordmark, { toValue: 1, duration: 600, delay: 900, useNativeDriver: true }).start();
+    Animated.timing(wordmark, { toValue: 1, duration: 500, delay: 500, useNativeDriver: true }).start();
 
     const t = setTimeout(() => {
-      Animated.timing(fadeOut, { toValue: 0, duration: 400, useNativeDriver: true }).start(({ finished }) => {
+      Animated.timing(fadeOut, { toValue: 0, duration: 350, useNativeDriver: true }).start(({ finished }) => {
         if (finished) onDone();
       });
-    }, 5400);
+    }, 2600);
     return () => clearTimeout(t);
   }, []);
 

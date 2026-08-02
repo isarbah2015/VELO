@@ -57,7 +57,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-standard.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 2.6 }, { translateX: -width * 0.33 }] },
+      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
       colors: ['#0A1F2E', '#0A1424', '#09090B'],
       glow: 'rgba(255,208,0,0.22)',
     },
@@ -73,7 +73,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 2.6 }, { translateX: -width * 0.33 }] },
+      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
       colors: ['#0A2A1C', '#0A1A14', '#09090B'],
       glow: 'rgba(34,197,94,0.22)',
     },
@@ -102,7 +102,9 @@ export default function OnboardingScreen() {
       setCurrentIndex(currentIndex + 1); // drives both the slide + background crossfade
     } else {
       await completeOnboarding();
-      router.replace('/(auth)/signup');
+      // push (not replace) so the welcome flow stays in history and the signup
+      // back button can return here.
+      router.push('/(auth)/signup');
     }
   };
 
@@ -251,7 +253,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: height * 0.44,
+    height: height * 0.46,
     overflow: 'hidden',
   },
   heroImg: {

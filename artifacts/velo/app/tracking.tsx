@@ -16,10 +16,12 @@ import { Svg, Rect, Path, Circle, Line } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useApp } from '@/context/AppContext';
+import { useApp, type Ride } from '@/context/AppContext';
 import * as Location from 'expo-location';
 import { watchRide, updateRiderLocation } from '@/services/rides';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
+import LiveMap from '@/components/LiveMap';
+import { bearing, distanceKm, etaMinutes, getRoute, type LngLat, type RouteResult } from '@/services/geo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -63,6 +65,11 @@ export default function TrackingScreen() {
   const [rideSeconds, setRideSeconds] = useState(0);
   const [driverPos, setDriverPos] = useState({ x: 60, y: height * 0.6 });
   const [rating, setRating] = useState(0);
+  // Live ride doc (driver GPS, rider GPS, geocoded pickup/dropoff) streamed from
+  // Firestore — drives the real map + ETA once a driver is actually moving.
+  const [ride, setRide] = useState<Ride | null>(null);
+  const prevDriverLL = useRef<LngLat | null>(null);
+  const [driverHeading, setDriverHeading] = useState(0);
 
   const mapW = width;
   const mapH = height * 0.55;
@@ -146,6 +153,16 @@ export default function TrackingScreen() {
     if (!rideId) return;
     const unsub = watchRide(rideId, (ride) => {
       if (!ride) return;
+      setRide(ride);
+      // Track heading from consecutive driver GPS fixes for the map puck.
+      if (ride.driverLoc) {
+        const ll: LngLat = [ride.driverLoc.lng, ride.driverLoc.lat];
+        const prev = prevDriverLL.current;
+        if (prev && (prev[0] !== ll[0] || prev[1] !== ll[1]) && distanceKm(prev, ll) > 0.002) {
+          setDriverHeading(bearing(prev, ll));
+        }
+        prevDriverLL.current = ll;
+      }
       if (ride.status === 'in_progress' || ride.status === 'completed' || ride.status === 'arrived') {
         if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
       }
@@ -216,6 +233,38 @@ export default function TrackingScreen() {
     });
   };
 
+  // ── Live map geometry (real driver GPS from Firestore) ───────────────────
+  const toLL = (c?: { lat: number; lng: number } | null): LngLat | null =>
+    c ? [c.lng, c.lat] : null;
+  const pickupLL = toLL(ride?.fromCoord);
+  const destLL = toLL(ride?.toCoord);
+  const driverLL: LngLat | null = ride?.driverLoc ? [ride.driverLoc.lng, ride.driverLoc.lat] : null;
+  const riderLL: LngLat | null = ride?.riderLoc ? [ride.riderLoc.lng, ride.riderLoc.lat] : null;
+  const targetLL = phase === 'inProgress' ? destLL : pickupLL;
+  const hasRealDriver = !!driverLL;
+  // Puck position: the real driver fix when it's plausibly nearby, else a seeded
+  // point a couple km from pickup so the map still shows an approaching driver.
+  const seeded: LngLat | null = pickupLL ? [pickupLL[0] + 0.02, pickupLL[1] + 0.018] : null;
+  const navDriverLL =
+    driverLL && targetLL && distanceKm(driverLL, targetLL) < 40 ? driverLL : seeded;
+
+  // Road-following route for the current leg (driver → pickup, then → dropoff).
+  // Refetched only when the leg/endpoints change, not on every GPS tick.
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  useEffect(() => {
+    if (!navDriverLL || !targetLL) { setRoute(null); return; }
+    let alive = true;
+    getRoute(navDriverLL, targetLL).then((r) => { if (alive) setRoute(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, pickupLL?.join(), destLL?.join()]);
+
+  // Live ETA + distance remaining (×1.3 approximates road vs straight-line).
+  const liveDistKm = navDriverLL && targetLL ? distanceKm(navDriverLL, targetLL) * 1.3 : null;
+  const liveEtaMin = liveDistKm != null ? etaMinutes(liveDistKm) : null;
+  const displayEtaSec = hasRealDriver && liveEtaMin != null ? liveEtaMin * 60 : etaSeconds;
+  const distanceLabel = hasRealDriver && liveDistKm != null ? `${liveDistKm.toFixed(1)} km away` : undefined;
+
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
 
@@ -231,16 +280,19 @@ export default function TrackingScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Map */}
+      {/* Live map — real driver GPS puck, route line, and follow camera. */}
       <View style={[styles.mapArea, { height: mapH, marginTop: topPad + 60 }]}>
-        <TrackingMap
+        <LiveMap
           width={mapW}
           height={mapH}
-          phase={phase}
-          driverPos={driverPos}
-          pickupPos={{ x: pickupX, y: pickupY }}
-          destPos={{ x: destX, y: destY }}
-          routeEnd={{ x: routeEndX, y: routeEndY }}
+          mode="route"
+          pickup={pickupLL ?? undefined}
+          dest={destLL ?? undefined}
+          driver={navDriverLL ?? undefined}
+          heading={driverHeading}
+          rider={riderLL ?? undefined}
+          routeLine={route?.coords ?? null}
+          follow={phase === 'arriving' || phase === 'inProgress'}
         />
       </View>
 
@@ -272,7 +324,8 @@ export default function TrackingScreen() {
         {/* Phase: Arriving */}
         {phase === 'arriving' && (
           <ArrivingPanel
-            etaSeconds={etaSeconds}
+            etaSeconds={displayEtaSec}
+            distanceLabel={distanceLabel}
             driverName={driverName}
             driverRating={driverRating}
             onCancel={handleCancel}
@@ -421,9 +474,9 @@ function TrackingMap({
 }
 
 function ArrivingPanel({
-  etaSeconds, driverName, driverRating, onCancel, onMessage, onCall, onShare,
+  etaSeconds, distanceLabel, driverName, driverRating, onCancel, onMessage, onCall, onShare,
 }: {
-  etaSeconds: number; driverName: string; driverRating: number;
+  etaSeconds: number; distanceLabel?: string; driverName: string; driverRating: number;
   onCancel: () => void; onMessage: () => void; onCall: () => void; onShare: () => void;
 }) {
   return (
@@ -436,7 +489,7 @@ function ArrivingPanel({
           <Text style={styles.driverName}>{driverName}</Text>
           <View style={styles.ratingRow}>
             <Ionicons name="star" size={13} color="#FFD000" />
-            <Text style={styles.ratingText}>{driverRating} rating</Text>
+            <Text style={styles.ratingText}>{driverRating} rating{distanceLabel ? ` · ${distanceLabel}` : ''}</Text>
           </View>
         </View>
         <View style={styles.etaBox}>
