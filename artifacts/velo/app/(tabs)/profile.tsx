@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,6 +18,9 @@ import { useApp, type Role } from '@/context/AppContext';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
 import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
+import {
+  LANGUAGES, getLanguage, setLanguage, languageLabel, type LanguageCode,
+} from '@/services/settings';
 
 interface MenuItem {
   id: string;
@@ -28,7 +32,8 @@ interface MenuItem {
   badge?: string;
 }
 
-const MENU_SECTIONS: { title: string; items: MenuItem[] }[] = [
+// Built per-render so dynamic subtitles (e.g. the chosen language) stay live.
+const buildMenuSections = (langLbl: string): { title: string; items: MenuItem[] }[] => [
   {
     title: 'Account',
     items: [
@@ -40,17 +45,24 @@ const MENU_SECTIONS: { title: string; items: MenuItem[] }[] = [
   {
     title: 'Safety',
     items: [
-      { id: 'sos', label: 'Emergency SOS', sub: 'Contacts & quick dial', icon: 'alert-circle-outline', iconColor: '#EF4444', chevron: true },
-      { id: 'track', label: 'Share Location', sub: 'Share rides with family', icon: 'location-outline', chevron: true },
-      { id: 'contacts', label: 'Emergency Contacts', sub: '2 contacts set', icon: 'people-outline', chevron: true },
+      { id: 'sos', label: 'Emergency SOS', sub: 'Quick-dial 191', icon: 'alert-circle-outline', iconColor: '#EF4444', chevron: true },
+      { id: 'track', label: 'Share Location', sub: 'Share your live trip', icon: 'location-outline', chevron: true },
+      { id: 'contacts', label: 'Emergency Contacts', sub: 'Trusted people to reach', icon: 'people-outline', chevron: true },
     ],
   },
   {
     title: 'Preferences',
     items: [
-      { id: 'lang', label: 'Language', sub: 'English', icon: 'language-outline', chevron: true },
+      { id: 'lang', label: 'Language', sub: langLbl, icon: 'language-outline', chevron: true },
       { id: 'notif', label: 'Notifications', sub: 'Rides, offers, alerts', icon: 'notifications-outline', chevron: true },
-      { id: 'help', label: 'Help & Support', sub: 'FAQs, contact us', icon: 'help-circle-outline', chevron: true },
+    ],
+  },
+  {
+    title: 'Support & Legal',
+    items: [
+      { id: 'help', label: 'Help & FAQs', sub: 'Answers and contact us', icon: 'help-circle-outline', chevron: true },
+      { id: 'privacy', label: 'Privacy Policy', sub: 'How we handle your data', icon: 'shield-outline', chevron: true },
+      { id: 'terms', label: 'Terms of Service', sub: 'The rules of using VELO', icon: 'document-text-outline', chevron: true },
     ],
   },
 ];
@@ -61,6 +73,9 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, role, rides, driverStatus, logout, switchRole, navMarker, setNavMarker } = useApp();
   const router = useRouter();
+  const [lang, setLang] = useState<LanguageCode>('en');
+
+  useEffect(() => { getLanguage().then(setLang); }, []);
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
   const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
@@ -68,6 +83,8 @@ export default function ProfileScreen() {
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const totalSpent = rides.reduce((sum, r) => (r.status === 'completed' ? sum + r.price : sum), 0);
   const isDriver = role === 'driver';
+
+  const menuSections = buildMenuSections(languageLabel(lang));
 
   // Drivers get an extra "Driver" section with the verification flow.
   const sections = isDriver
@@ -78,9 +95,57 @@ export default function ProfileScreen() {
             { id: 'verify', label: 'Verification', sub: 'Ghana Card & motorcycle photos', icon: 'shield-checkmark-outline', iconColor: '#FFD000', chevron: true } as MenuItem,
           ],
         },
-        ...MENU_SECTIONS,
+        ...menuSections,
       ]
-    : MENU_SECTIONS;
+    : menuSections;
+
+  const chooseLanguage = () => {
+    Alert.alert('Language', 'Choose your preferred language', [
+      ...LANGUAGES.map((l) => ({
+        text: l.label,
+        onPress: () => { setLang(l.code); setLanguage(l.code).catch(() => {}); },
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
+
+  const shareLocation = async () => {
+    const active = rides.find((r) => r.status === 'accepted' || r.status === 'in_progress');
+    const msg = active
+      ? `I'm on a VELO ride from ${active.from} to ${active.to}. Track my trip and check in on me.`
+      : `I'm using VELO for my Okada rides in Ghana. I'll share my live trip with you next time I ride.`;
+    try {
+      await Share.share({ message: msg });
+    } catch {
+      /* user dismissed the share sheet — nothing to do */
+    }
+  };
+
+  const handleMenuPress = (id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    switch (id) {
+      case 'payment': return router.push('/payment-methods');
+      case 'history': return router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
+      case 'promo': return router.push('/referral');
+      case 'verify': return router.push('/driver-verify');
+      case 'track': return shareLocation();
+      case 'contacts': return router.push('/emergency-contacts');
+      case 'lang': return chooseLanguage();
+      case 'notif': return router.push('/notification-settings');
+      case 'help': return router.push('/faq');
+      case 'privacy': return router.push('/privacy-policy');
+      case 'terms': return router.push('/terms-of-service');
+      case 'sos':
+        return Alert.alert(
+          'Emergency SOS',
+          `Call Ghana emergency services (${EMERGENCY_NUMBER}) now?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
+          ]
+        );
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -139,7 +204,7 @@ export default function ProfileScreen() {
               <Text style={styles.veloTagText}>Verified {ROLE_LABEL[role]}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.editBtn}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => router.push('/edit-profile')} activeOpacity={0.7}>
             <Ionicons name="create-outline" size={20} color="#FFD000" />
           </TouchableOpacity>
         </View>
@@ -301,23 +366,7 @@ export default function ProfileScreen() {
                 <View key={item.id}>
                   <TouchableOpacity
                     style={styles.menuItem}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      if (item.id === 'payment') router.push('/payment-methods');
-                      if (item.id === 'history') router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
-                      if (item.id === 'promo') router.push('/referral');
-                      if (item.id === 'verify') router.push('/driver-verify');
-                      if (item.id === 'sos') {
-                        Alert.alert(
-                          'Emergency SOS',
-                          `Call Ghana emergency services (${EMERGENCY_NUMBER}) now?`,
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
-                          ]
-                        );
-                      }
-                    }}
+                    onPress={() => handleMenuPress(item.id)}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.menuIconWrap, item.iconColor && { borderColor: item.iconColor + '30' }]}>

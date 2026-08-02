@@ -86,6 +86,10 @@ function RootLayoutNav() {
       <Stack.Screen name="chat" />
       <Stack.Screen name="receipt" />
       <Stack.Screen name="driver-verify" />
+      <Stack.Screen name="edit-profile" />
+      <Stack.Screen name="faq" />
+      <Stack.Screen name="notification-settings" />
+      <Stack.Screen name="emergency-contacts" />
       <Stack.Screen name="referral" />
       <Stack.Screen name="wallet" />
       <Stack.Screen name="payment-methods" />

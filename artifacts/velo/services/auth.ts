@@ -92,6 +92,11 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   return snap.exists() ? (snap.data() as UserProfile) : null;
 }
 
+// Update the rider/driver's display name from the edit-profile screen.
+export async function updateUserName(uid: string, name: string) {
+  await updateDoc(doc(db, 'users', uid), { name: name.trim() });
+}
+
 // Switching into Driver mode for the first time provisions the drivers/{uid}
 // doc lazily, since a rider who never drove has no earnings/status doc yet.
 export async function setUserRole(uid: string, role: Role) {

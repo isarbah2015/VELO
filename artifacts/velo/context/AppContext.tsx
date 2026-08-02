@@ -88,6 +88,7 @@ interface AppContextType {
   signup: (name: string, phone: string, password: string, role?: Role) => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
+  updateProfile: (name: string) => Promise<void>;
 
   requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => Promise<string>;
   refreshRides: () => Promise<void>;
@@ -214,6 +215,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await authService.logout();
   }, []);
+
+  // Edit-profile: persist the new name, then reflect it locally so the whole
+  // app (profile header, chat, etc.) updates without a reload.
+  const updateProfile = useCallback(async (name: string) => {
+    if (!firebaseUser) return;
+    await authService.updateUserName(firebaseUser.uid, name);
+    setProfile((p) => (p ? { ...p, name: name.trim() } : p));
+  }, [firebaseUser]);
 
   // OPTIMIZED: Instant role switch — update UI immediately, then sync in background
   const switchRole = useCallback(async (role: Role) => {
@@ -350,6 +359,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     signup,
     logout,
     switchRole,
+    updateProfile,
     requestRide,
     refreshRides,
     cancelRide,
@@ -370,7 +380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     savedPlaces, addSavedPlace, removeSavedPlace,
-    completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
+    completeOnboarding, login, signup, logout, switchRole, updateProfile, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline, navMarker, setNavMarker,
   ]);
