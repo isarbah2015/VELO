@@ -1,21 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Animated,
   Dimensions,
+  Easing,
   Image,
+  Linking,
   Modal,
   Platform,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import CityMap from '@/components/CityMap';
+import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
-import { watchRide } from '@/services/rides';
+import { applyRiderDiscount } from '@/services/riderTiers';
+import { applyPromo } from '@/services/promo';
+import { getOnlineDriverCount } from '@/services/driver';
+import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
@@ -24,7 +32,7 @@ const { width, height } = Dimensions.get('window');
 const SERVICES = [
   { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵2.50/km' },
   { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵4.00/km' },
-  { id: 'group', label: 'Group', icon: 'people' as const, price: '₵3.50/km' },
+  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵5.00/km' },
 ];
 
 const BIKES = [
@@ -50,20 +58,56 @@ const BIKES = [
     rating: 4.9,
     photo: require('@/assets/images/bike-premium.png'),
   },
+  {
+    id: 'bossu',
+    name: 'Okada Bossu',
+    type: 'Top-tier rider',
+    price: '₵35.00',
+    period: 'per hour',
+    seats: 1,
+    eta: '6 min',
+    rating: 5.0,
+    photo: require('@/assets/images/bike-premium.png'),
+  },
 ];
 
+// Bike id → the ride tier stored on the request. Premium/Bossu are the
+// higher tiers a driver earns access to (see services/tiers.ts).
+const rideTypeFor = (id: string): Ride['type'] =>
+  id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
+
+// Distance/time-based pricing model per tier: fare = base + perKm·km + perMin·min.
+// (Estimated trip until live routing distance is wired in.)
+const RATE: Record<Ride['type'], { base: number; perKm: number; perMin: number }> = {
+  Standard: { base: 5, perKm: 2.5, perMin: 0.5 },
+  Premium: { base: 8, perKm: 4.0, perMin: 0.7 },
+  Bossu: { base: 12, perKm: 5.0, perMin: 0.9 },
+};
+const EST_KM = 6.4;
+const EST_MIN = 16;
+const estimateFare = (type: Ride['type']): number =>
+  Math.round(RATE[type].base + RATE[type].perKm * EST_KM + RATE[type].perMin * EST_MIN);
+const fareFor = (id: string): number => estimateFare(rideTypeFor(id));
+
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
+type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide } = useApp();
+  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace } = useApp();
+  // Rider loyalty: completed trips drive the tier + its standing fare discount.
+  const completedRides = rides.filter((r) => r.status === 'completed').length;
+  const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
   const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
+  const [pickup, setPickup] = useState('Accra Mall, East Legon');
   const [destination, setDestination] = useState('Osu Oxford Street');
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
+  const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
 
   const isWeb = Platform.OS === 'web';
@@ -71,20 +115,57 @@ export default function HomeScreen() {
 
   useEffect(() => () => unwatchRef.current?.(), []);
 
+  // Search timeout: if no driver accepts within the request TTL, stop searching,
+  // expire the request (so no driver can still grab a ride the rider gave up on),
+  // and let the rider try again — instead of an endless "Finding your rider…".
+  useEffect(() => {
+    if (bookingState !== 'searching' || !activeRideId) return;
+    const t = setTimeout(() => {
+      unwatchRef.current?.();
+      unwatchRef.current = null;
+      expireRide(activeRideId);
+      setActiveRideId(null);
+      setBookingState('idle');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert('No drivers available', 'No driver picked up your request. Please try again in a moment.');
+    }, REQUEST_TTL_MS);
+    return () => clearTimeout(t);
+  }, [bookingState, activeRideId]);
+
   const handleBookNow = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBookingState('confirm');
   };
 
-  const handleConfirmRide = async () => {
+  const handleConfirmRide = async (scheduledFor?: string, payMethod: PayMethod = 'cash', finalFare?: number, promoCode?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setBookingState('searching');
-    const rideId = await requestRide({
-      from: 'Accra Mall, East Legon',
+    const base = {
+      from: pickup,
       to: destination,
-      type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
-      price: 42,
-    });
+      type: rideTypeFor(selectedBike.id),
+      // Use the fare the rider actually confirmed (loyalty + promo applied);
+      // fall back to the loyalty-only fare for the scheduled path.
+      price: finalFare ?? effFare(selectedBike.id),
+      paymentMethod: payMethod,
+      promoCode: promoCode ?? null,
+    };
+
+    // Scheduled rides are created for later — no live search now. They land
+    // in the request pool at their time and show in the rider's trips list.
+    if (scheduledFor) {
+      await requestRide({ ...base, scheduledFor });
+      setBookingState('idle');
+      const when = new Date(scheduledFor).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+      Alert.alert('Ride scheduled', `Your ${base.type} ride is booked for ${when}. We'll match a driver then.`);
+      return;
+    }
+
+    // Stash the confirmed fare + method so the searching card can recap them,
+    // and fetch how many drivers are online to ground the wait.
+    setSearchInfo({ fare: base.price, payMethod });
+    getOnlineDriverCount().then(setOnlineCount).catch(() => {});
+    setBookingState('searching');
+    const rideId = await requestRide(base);
     setActiveRideId(rideId);
     unwatchRef.current = watchRide(rideId, (ride) => {
       if (ride?.driverId) {
@@ -114,12 +195,13 @@ export default function HomeScreen() {
       pathname: '/tracking',
       params: {
         rideId: activeRideId ?? '',
-        from: 'Accra Mall, East Legon',
+        from: pickup,
         to: destination,
-        type: selectedBike.id === 'standard' ? 'Standard' : 'Premium',
-        price: '42',
+        type: rideTypeFor(selectedBike.id),
+        price: String(effFare(selectedBike.id)),
         driverName: matchedRide?.driverName ?? 'Your VELO driver',
-        driverRating: '4.8',
+        driverRating: String(matchedRide?.driverRating ?? '4.8'),
+        driverPhone: matchedRide?.driverPhone ?? '',
       },
     });
   };
@@ -128,72 +210,129 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Full-page stylized city map background */}
+      {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <CityMap width={width} height={height} showRoute />
+        <LiveMap width={width} height={height} mode="route" />
       </View>
 
-      {/* Top floating: location pill + bell (no greeting) */}
-      <View style={[styles.topBar, { top: insets.top + (isWeb ? 14 : 6) }]}>
-        <TouchableOpacity style={styles.locPill} activeOpacity={0.85}>
-          <Ionicons name="location" size={15} color="#FFD000" />
-          <Text style={styles.locPillText} numberOfLines={1}>Accra Mall, East Legon</Text>
-          <Ionicons name="chevron-down" size={15} color="#71717A" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.bell}>
-          <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
-          <View style={styles.bellDot} />
-        </TouchableOpacity>
+      {/* Floating route card — type pickup + destination directly (no modal) */}
+      <View style={[styles.routeCard, { top: insets.top + 10 }]}>
+        <View style={styles.routeRow}>
+          <View style={styles.routeDotYellow} />
+          <View style={styles.routeField}>
+            <Text style={styles.routeLabel}>Pickup location</Text>
+            <TextInput
+              style={styles.routeInput}
+              value={pickup}
+              onChangeText={setPickup}
+              placeholder="Set pickup point"
+              placeholderTextColor="#71717A"
+              returnKeyType="next"
+            />
+          </View>
+          <Ionicons name="locate" size={18} color="#FFD000" />
+        </View>
+        <View style={styles.routeDivider} />
+        <View style={styles.routeRow}>
+          <View style={styles.routeDotRedSm} />
+          <View style={styles.routeField}>
+            <Text style={styles.routeLabel}>Where to?</Text>
+            <TextInput
+              style={styles.routeInput}
+              value={destination}
+              onChangeText={setDestination}
+              placeholder="Enter destination"
+              placeholderTextColor="#71717A"
+              returnKeyType="done"
+            />
+          </View>
+        </View>
+
+        {/* Saved places — one-tap destination fill + save the current one. */}
+        <View style={styles.placesRow}>
+          {savedPlaces.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={styles.placeChip}
+              onPress={() => { Haptics.selectionAsync(); setDestination(p.address); }}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                Alert.alert('Remove saved place', `Remove "${p.label}"?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeSavedPlace(p.id).catch(() => {}) },
+                ]);
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={(p.icon ?? 'bookmark') as keyof typeof Ionicons.glyphMap} size={13} color="#FFD000" />
+              <Text style={styles.placeChipText} numberOfLines={1}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={styles.placeAddChip}
+            onPress={() => {
+              const dest = destination.trim();
+              if (!dest) { Alert.alert('No destination', 'Enter a destination to save it.'); return; }
+              if (Alert.prompt) {
+                Alert.prompt('Save place', `Label for "${dest}"`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Save', onPress: (label?: string) => { if (label?.trim()) addSavedPlace(label.trim(), dest).catch(() => {}); } },
+                ], 'plain-text', 'Home');
+              } else {
+                // Android has no Alert.prompt — save with the first word as label.
+                addSavedPlace(dest.split(',')[0].slice(0, 20) || 'Saved', dest).catch(() => {});
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add" size={14} color="#A1A1AA" />
+            <Text style={styles.placeAddText}>Save</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Bottom sheet — search, ride types, selected bike */}
+      {/* Bottom sheet — single VELO Standard vehicle card */}
       <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
         <View style={styles.sheetHandle} />
 
-        <TouchableOpacity style={styles.searchBar} activeOpacity={0.85} onPress={handleBookNow}>
-          <View style={styles.searchIcon}>
-            <Ionicons name="search" size={16} color="#000000" />
+        <View style={styles.vehicleTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bikeName}>{selectedBike.name}</Text>
+            <View style={styles.fareRow}>
+              <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
+              {completedRides >= 10 && (
+                <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+              )}
+              <Text style={styles.fareSub}> est. fare</Text>
+            </View>
+            <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
           </View>
-          <Text style={styles.searchText} numberOfLines={1}>{destination}</Text>
-          <Ionicons name="chevron-forward" size={18} color="#52525B" />
-        </TouchableOpacity>
-
-        <View style={styles.chipsRow}>
-          {SERVICES.map((s) => {
-            const active = selectedService === s.id;
-            return (
-              <TouchableOpacity
-                key={s.id}
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setSelectedService(s.id);
-                  setSelectedBike(BIKES.find((b) => b.id === s.id) ?? BIKES[0]);
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{s.label}</Text>
-                <Text style={[styles.chipPrice, active && styles.chipPriceActive]}>{s.price}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          <View style={styles.vehicleIcons}>
+            <TouchableOpacity style={styles.roundIcon}>
+              <Ionicons name="heart-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.roundIcon}>
+              <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.bikeRow}>
-          <View style={styles.bikeMeta}>
-            <Text style={styles.bikeName}>{selectedBike.name}</Text>
-            <View style={styles.bikeStats}>
-              <Ionicons name="time-outline" size={13} color="#A1A1AA" />
-              <Text style={styles.bikeStatText}>{selectedBike.eta}</Text>
-              <Ionicons name="star" size={13} color="#FFD000" style={{ marginLeft: 8 }} />
-              <Text style={styles.bikeStatText}>{selectedBike.rating}</Text>
+        <View style={styles.vehicleBody}>
+          <View style={styles.vehicleChipsCol}>
+            <View style={styles.vChip}>
+              <Ionicons name="time-outline" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
             </View>
-            <View style={styles.priceRow}>
-              <Text style={styles.bikePrice}>{selectedBike.price}</Text>
-              <Text style={styles.bikePeriod}> /hr</Text>
+            <View style={styles.vChip}>
+              <Ionicons name="star" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
+            </View>
+            <View style={styles.vChip}>
+              <Ionicons name="person-outline" size={14} color="#FFD000" />
+              <Text style={styles.vChipText}>1 seat</Text>
             </View>
           </View>
-          <Image source={selectedBike.photo} style={styles.bikeImg} resizeMode="contain" />
+          <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
         </View>
 
         <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
@@ -214,14 +353,41 @@ export default function HomeScreen() {
             {bookingState === 'confirm' && (
               <ConfirmView
                 bike={selectedBike}
+                pickup={pickup}
                 destination={destination}
+                walletBalance={walletBalance}
+                completedRides={completedRides}
                 onConfirm={handleConfirmRide}
                 onCancel={() => setBookingState('idle')}
               />
             )}
-            {bookingState === 'searching' && <SearchingView />}
+            {bookingState === 'searching' && (
+              <SearchingView
+                pickup={pickup}
+                destination={destination}
+                fare={searchInfo?.fare ?? effFare(selectedBike.id)}
+                payMethod={searchInfo?.payMethod ?? 'cash'}
+                onlineCount={onlineCount}
+                onCancel={handleCloseBooking}
+              />
+            )}
             {bookingState === 'found' && (
-              <FoundView driverName={matchedRide?.driverName ?? 'Your VELO driver'} onClose={handleCloseBooking} onTrackRide={handleTrackRide} />
+              <FoundView
+                driverName={matchedRide?.driverName ?? 'Your VELO driver'}
+                driverPhone={matchedRide?.driverPhone}
+                rideId={activeRideId}
+                pickup={pickup}
+                destination={destination}
+                onClose={handleCloseBooking}
+                onTrackRide={handleTrackRide}
+                onMessage={() => {
+                  setBookingState('idle');
+                  router.push({
+                    pathname: '/chat',
+                    params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
+                  });
+                }}
+              />
             )}
           </View>
         </View>
@@ -230,17 +396,65 @@ export default function HomeScreen() {
   );
 }
 
+const SCHEDULE_OPTIONS: { label: string; minutes: number }[] = [
+  { label: 'Now', minutes: 0 },
+  { label: '+30m', minutes: 30 },
+  { label: '+1h', minutes: 60 },
+  { label: '+2h', minutes: 120 },
+];
+
+const PAY_OPTIONS: { id: PayMethod; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'wallet', label: 'Wallet', icon: 'wallet-outline' },
+  { id: 'cash', label: 'Cash', icon: 'cash-outline' },
+  { id: 'momo', label: 'MoMo', icon: 'phone-portrait-outline' },
+];
+
 function ConfirmView({
   bike,
+  pickup,
   destination,
+  walletBalance,
+  completedRides,
   onConfirm,
   onCancel,
 }: {
   bike: typeof BIKES[0];
+  pickup: string;
   destination: string;
-  onConfirm: () => void;
+  walletBalance: number;
+  completedRides: number;
+  onConfirm: (scheduledFor?: string, payMethod?: PayMethod, finalFare?: number, promoCode?: string) => void;
   onCancel: () => void;
 }) {
+  const [scheduleMin, setScheduleMin] = useState(0);
+  const scheduled = scheduleMin > 0;
+  const baseFare = fareFor(bike.id);
+  const loyaltyFare = applyRiderDiscount(baseFare, completedRides); // loyalty-adjusted
+  const saved = Math.round((baseFare - loyaltyFare) * 100) / 100;
+
+  // Promo code applied on top of the loyalty fare.
+  const [promoInput, setPromoInput] = useState('');
+  const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [promoErr, setPromoErr] = useState('');
+  const fare = promo ? Math.round((loyaltyFare - promo.discount) * 100) / 100 : loyaltyFare;
+
+  const tryPromo = () => {
+    const res = applyPromo(promoInput, loyaltyFare);
+    if (res.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPromo({ code: res.promo.code, discount: res.discount });
+      setPromoErr('');
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setPromo(null);
+      setPromoErr(res.reason);
+    }
+  };
+
+  const walletOk = walletBalance >= fare;
+  // Default to wallet when it covers the fare, otherwise cash.
+  const [payMethod, setPayMethod] = useState<PayMethod>(walletOk ? 'wallet' : 'cash');
+
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.sheetHandle} />
@@ -249,12 +463,32 @@ function ConfirmView({
       <View style={styles.confirmRoute}>
         <View style={styles.confirmRouteRow}>
           <View style={[styles.routeDot, { width: 10, height: 10 }]} />
-          <Text style={styles.confirmRouteText} numberOfLines={1}>Accra Mall, East Legon</Text>
+          <Text style={styles.confirmRouteText} numberOfLines={1}>{pickup}</Text>
         </View>
         <View style={styles.confirmRouteConnector} />
         <View style={styles.confirmRouteRow}>
           <View style={[styles.routeDot, styles.routeDotRed, { width: 10, height: 10 }]} />
           <Text style={styles.confirmRouteText} numberOfLines={1}>{destination}</Text>
+        </View>
+      </View>
+
+      {/* Schedule for later */}
+      <View style={{ gap: 10 }}>
+        <Text style={styles.scheduleLabel}>When</Text>
+        <View style={styles.scheduleRow}>
+          {SCHEDULE_OPTIONS.map((o) => {
+            const active = scheduleMin === o.minutes;
+            return (
+              <TouchableOpacity
+                key={o.label}
+                style={[styles.scheduleChip, active && styles.scheduleChipActive]}
+                onPress={() => { Haptics.selectionAsync(); setScheduleMin(o.minutes); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.scheduleChipText, active && styles.scheduleChipTextActive]}>{o.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -265,20 +499,96 @@ function ConfirmView({
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Est. Fare</Text>
-          <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵42.00</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {baseFare - fare > 0.001 && <Text style={styles.fareStrike}>₵{baseFare.toFixed(2)}</Text>}
+            <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵{fare.toFixed(2)}</Text>
+          </View>
         </View>
+        {saved > 0 && (
+          <View style={styles.confirmDetailRow}>
+            <Text style={styles.confirmDetailLabel}>Loyalty discount</Text>
+            <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>−₵{saved.toFixed(2)}</Text>
+          </View>
+        )}
+        {promo && (
+          <View style={styles.confirmDetailRow}>
+            <Text style={styles.confirmDetailLabel}>Promo {promo.code}</Text>
+            <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>−₵{promo.discount.toFixed(2)}</Text>
+          </View>
+        )}
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Driver ETA</Text>
           <Text style={styles.confirmDetailValue}>{bike.eta}</Text>
         </View>
-        <View style={styles.confirmDetailRow}>
-          <Text style={styles.confirmDetailLabel}>Payment</Text>
-          <Text style={styles.confirmDetailValue}>MTN MoMo</Text>
-        </View>
       </View>
 
-      <TouchableOpacity style={styles.bookNowBtn} onPress={onConfirm} activeOpacity={0.85}>
-        <Text style={styles.bookNowText}>Confirm Ride</Text>
+      {/* Payment method — wallet settles automatically on completion; cash/MoMo
+          are collected by the driver in person. */}
+      <View style={{ gap: 10 }}>
+        <Text style={styles.scheduleLabel}>Payment</Text>
+        <View style={styles.scheduleRow}>
+          {PAY_OPTIONS.map((o) => {
+            const active = payMethod === o.id;
+            const disabled = o.id === 'wallet' && !walletOk;
+            return (
+              <TouchableOpacity
+                key={o.id}
+                style={[styles.payChip, active && styles.scheduleChipActive, disabled && styles.payChipDisabled]}
+                onPress={() => { if (disabled) return; Haptics.selectionAsync(); setPayMethod(o.id); }}
+                activeOpacity={disabled ? 1 : 0.85}
+              >
+                <Ionicons name={o.icon} size={16} color={active ? '#FFD000' : disabled ? '#52525B' : '#A1A1AA'} />
+                <Text style={[styles.scheduleChipText, active && styles.scheduleChipTextActive, disabled && { color: '#52525B' }]}>{o.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {payMethod === 'wallet' && (
+          <Text style={styles.payHint}>Balance ₵{walletBalance.toFixed(2)} · ₵{fare.toFixed(2)} deducted on completion</Text>
+        )}
+      </View>
+
+      {/* Promo code */}
+      <View style={{ gap: 8 }}>
+        <Text style={styles.scheduleLabel}>Promo code</Text>
+        <View style={styles.promoRow}>
+          <TextInput
+            style={styles.promoInput}
+            value={promoInput}
+            onChangeText={(t) => { setPromoInput(t); setPromoErr(''); }}
+            placeholder="Enter code (e.g. VELO10)"
+            placeholderTextColor="#52525B"
+            autoCapitalize="characters"
+            editable={!promo}
+          />
+          {promo ? (
+            <TouchableOpacity
+              style={styles.promoBtnClear}
+              onPress={() => { setPromo(null); setPromoInput(''); Haptics.selectionAsync(); }}
+            >
+              <Ionicons name="close" size={18} color="#EF4444" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.promoBtn} onPress={tryPromo} disabled={!promoInput.trim()}>
+              <Text style={styles.promoBtnText}>Apply</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {promo && <Text style={styles.promoOk}>✓ {promo.code} applied — you save ₵{promo.discount.toFixed(2)}</Text>}
+        {promoErr ? <Text style={styles.promoErr}>{promoErr}</Text> : null}
+      </View>
+
+      <TouchableOpacity
+        style={styles.bookNowBtn}
+        onPress={() => onConfirm(
+          scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined,
+          payMethod,
+          fare,
+          promo?.code,
+        )}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.bookNowText}>{scheduled ? 'Schedule Ride' : 'Confirm Ride'}</Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
         <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -287,18 +597,138 @@ function ConfirmView({
   );
 }
 
-function SearchingView() {
+const PAY_LABEL: Record<PayMethod, string> = { wallet: 'VELO Wallet', cash: 'Cash', momo: 'Mobile Money' };
+
+function SearchingView({
+  pickup,
+  destination,
+  fare,
+  payMethod,
+  onlineCount,
+  onCancel,
+}: {
+  pickup: string;
+  destination: string;
+  fare: number;
+  payMethod: PayMethod;
+  onlineCount: number | null;
+  onCancel: () => void;
+}) {
+  // Elapsed timer — a moving number reassures the rider the search is live.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const mm = Math.floor(elapsed / 60);
+  const ss = String(elapsed % 60).padStart(2, '0');
+
+  // Two staggered radar rings pulsing out from the bike — the "we're looking"
+  // motion riders expect from Uber/Bolt.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(pulse, { toValue: 1, duration: 2000, easing: Easing.out(Easing.ease), useNativeDriver: true })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const ring = (delay: number) => ({
+    opacity: pulse.interpolate({ inputRange: [0, delay, 1], outputRange: [0.5, 0.35, 0] }),
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4 + delay, 1.8] }) }],
+  });
+
   return (
-    <View style={{ alignItems: 'center', gap: 20, paddingVertical: 24 }}>
+    <View style={{ gap: 18, paddingVertical: 8 }}>
       <View style={styles.sheetHandle} />
-      <ActivityIndicator size="large" color="#FFD000" />
-      <Text style={styles.sheetTitle}>Finding your rider...</Text>
-      <Text style={styles.sheetSubtitle}>Connecting you with a nearby VELO rider</Text>
+
+      {/* Radar pulse with the VELO bike at the centre */}
+      <View style={styles.radarWrap}>
+        <Animated.View style={[styles.radarRing, ring(0)]} />
+        <Animated.View style={[styles.radarRing, ring(0.4)]} />
+        <View style={styles.radarCore}>
+          <Ionicons name="bicycle" size={30} color="#000" />
+        </View>
+      </View>
+
+      <View style={{ alignItems: 'center', gap: 4 }}>
+        <Text style={styles.sheetTitle}>Finding your driver…</Text>
+        <Text style={styles.sheetSubtitle}>
+          {onlineCount == null
+            ? 'Connecting you with a nearby VELO driver'
+            : onlineCount > 0
+            ? `Reaching out to ${onlineCount} driver${onlineCount === 1 ? '' : 's'} online near you`
+            : 'Waiting for a driver to come online nearby'}
+        </Text>
+        <Text style={styles.searchTimer}>{mm}:{ss}</Text>
+      </View>
+
+      {/* Trip recap so the rider can confirm details while they wait */}
+      <View style={styles.searchRecap}>
+        <View style={styles.searchRouteRow}>
+          <View style={styles.routeDotYellow} />
+          <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
+        </View>
+        <View style={styles.searchRouteConnector} />
+        <View style={styles.searchRouteRow}>
+          <View style={styles.routeDotRedSm} />
+          <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
+        </View>
+        <View style={styles.searchDivider} />
+        <View style={styles.searchMetaRow}>
+          <View style={styles.searchMeta}>
+            <Ionicons name="pricetag-outline" size={15} color="#71717A" />
+            <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+          </View>
+          <View style={styles.searchMeta}>
+            <Ionicons name="card-outline" size={15} color="#71717A" />
+            <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+          </View>
+        </View>
+      </View>
+
+      <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
+        <Text style={styles.searchCancelText}>Cancel search</Text>
+      </TouchableOpacity>
+      <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
     </View>
   );
 }
 
-function FoundView({ driverName, onClose, onTrackRide }: { driverName: string; onClose: () => void; onTrackRide: () => void }) {
+function FoundView({
+  driverName,
+  driverPhone,
+  rideId,
+  pickup,
+  destination,
+  onClose,
+  onTrackRide,
+  onMessage,
+}: {
+  driverName: string;
+  driverPhone?: string | null;
+  rideId?: string | null;
+  pickup: string;
+  destination: string;
+  onClose: () => void;
+  onTrackRide: () => void;
+  onMessage: () => void;
+}) {
+  const handleCall = () => {
+    const num = (driverPhone || '').replace(/\s/g, '');
+    if (!num) {
+      Alert.alert('No number yet', "Your driver's phone number isn't available yet.");
+      return;
+    }
+    Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot place call', 'Calling is not available on this device.'));
+  };
+
+  const handleShare = () => {
+    Share.share({
+      message: `I'm on a VELO ride with ${driverName} from ${pickup} to ${destination}. Track me on VELO.`,
+    }).catch(() => {});
+  };
+
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.sheetHandle} />
@@ -331,15 +761,15 @@ function FoundView({ driverName, onClose, onTrackRide }: { driverName: string; o
       </View>
 
       <View style={styles.contactRow}>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={handleCall} activeOpacity={0.8}>
           <Ionicons name="call-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Call</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={onMessage} activeOpacity={0.8}>
           <Ionicons name="chatbubble-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Message</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
+        <TouchableOpacity style={styles.contactBtn} onPress={handleShare} activeOpacity={0.8}>
           <Ionicons name="share-social-outline" size={22} color="#FFD000" />
           <Text style={styles.contactBtnText}>Share</Text>
         </TouchableOpacity>
@@ -359,6 +789,55 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#09090B',
+  },
+  scheduleLabel: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  scheduleChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    backgroundColor: '#18181B',
+  },
+  scheduleChipActive: {
+    borderColor: '#FFD000',
+    backgroundColor: 'rgba(255,208,0,0.12)',
+  },
+  scheduleChipText: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scheduleChipTextActive: {
+    color: '#FFD000',
+  },
+  payChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    backgroundColor: '#18181B',
+  },
+  payChipDisabled: {
+    opacity: 0.5,
+  },
+  payHint: {
+    color: '#71717A',
+    fontSize: 12,
   },
   topBar: {
     position: 'absolute',
@@ -527,6 +1006,143 @@ const styles = StyleSheet.create({
     width: 158,
     height: 104,
   },
+  // Floating route card (inline editable pickup + destination)
+  routeCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(19,19,22,0.96)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 12,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  routeDotYellow: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#FFD000' },
+  routeDotRedSm: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#EF4444' },
+  routeField: { flex: 1 },
+  routeLabel: { fontSize: 11, color: '#71717A', fontWeight: '600', marginBottom: 1 },
+  routeInput: { fontSize: 15, color: '#FFFFFF', fontWeight: '600', padding: 0 },
+  routeDivider: { height: 1, backgroundColor: '#27272A', marginLeft: 23 },
+  // Single vehicle card
+  vehicleTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  fareRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  placesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  placeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: 140,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,208,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,208,0,0.25)',
+  },
+  placeChipText: { color: '#E4E4E7', fontSize: 12, fontWeight: '600' },
+  placeAddChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderStyle: 'dashed',
+  },
+  placeAddText: { color: '#A1A1AA', fontSize: 12, fontWeight: '600' },
+  promoRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  promoInput: {
+    flex: 1,
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  promoBtn: {
+    backgroundColor: 'rgba(255,208,0,0.14)',
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  promoBtnText: { color: '#FFD000', fontSize: 14, fontWeight: '700' },
+  promoBtnClear: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239,68,68,0.12)',
+  },
+  promoOk: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
+  promoErr: { color: '#EF4444', fontSize: 12 },
+  farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
+  fareStrike: { fontSize: 14, color: '#71717A', fontWeight: '600', textDecorationLine: 'line-through' },
+  fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
+  fareFormula: { fontSize: 11, color: '#71717A', marginTop: 2 },
+  vehicleIcons: { flexDirection: 'row', gap: 8 },
+  roundIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  vehicleChipsCol: { gap: 8 },
+  vChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+  },
+  vChipText: { fontSize: 13, color: '#E4E4E7', fontWeight: '600' },
+  vehicleImg: {
+    width: 235,
+    height: 150,
+    marginRight: -18,
+  },
   routeDot: {
     width: 12,
     height: 12,
@@ -582,7 +1198,69 @@ const styles = StyleSheet.create({
   sheetSubtitle: {
     fontSize: 14,
     color: '#71717A',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
+  radarWrap: {
+    alignSelf: 'center',
+    width: 140,
+    height: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radarRing: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 2,
+    borderColor: '#FFD000',
+  },
+  radarCore: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFD000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchTimer: {
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFD000',
+    fontVariant: ['tabular-nums'],
+  },
+  searchRecap: {
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    gap: 8,
+  },
+  searchRouteRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  searchRouteText: { flex: 1, fontSize: 14, color: '#E4E4E7', fontWeight: '500' },
+  searchRouteConnector: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#3F3F46',
+    marginLeft: 4,
+  },
+  searchDivider: { height: 1, backgroundColor: '#27272A', marginVertical: 4 },
+  searchMetaRow: { flexDirection: 'row', gap: 20 },
+  searchMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  searchMetaText: { fontSize: 14, color: '#FFFFFF', fontWeight: '600' },
+  searchCancelBtn: {
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderRadius: 14,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCancelText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
+  searchCancelNote: { fontSize: 12, color: '#52525B', textAlign: 'center' },
   confirmRoute: {
     backgroundColor: '#1C1C1F',
     borderRadius: 14,
@@ -638,6 +1316,23 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     fontSize: 15,
     color: '#71717A',
+  },
+  locField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#18181B',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 54,
+  },
+  locInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    height: '100%',
   },
   foundHeader: {
     flexDirection: 'row',

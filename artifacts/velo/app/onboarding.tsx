@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
-  FlatList,
   Image,
   StyleSheet,
   Text,
@@ -18,12 +18,33 @@ import AnimatedLogo from '@/components/AnimatedLogo';
 
 const { width, height } = Dimensions.get('window');
 
-const SLIDES = [
+type SlideBg = {
+  image?: number;
+  imageStyle?: object; // per-slide framing (scale/rotate/offset) for the hero image
+  heroMode?: 'cover' | 'contain'; // 'cover' = full-bleed photo, 'contain' = whole product visible up top
+  colors: readonly [string, string, ...string[]];
+  glow: string;
+};
+
+const SLIDES: {
+  id: string;
+  tag: string;
+  title: string;
+  subtitle: string;
+  features?: string[];
+  bg: SlideBg;
+}[] = [
   {
     id: '1',
     tag: 'Premium Rides',
     title: 'Ride Safe.\nRide Fast.',
     subtitle: "Ghana's #1 bike-hailing app. Get to your destination fast, safely, and affordably.",
+    // Human hero photo, warmed with a subtle gold glow.
+    bg: {
+      image: require('@/assets/images/onboarding-hero.png'),
+      colors: ['#09090B', '#0B0A06', '#09090B'],
+      glow: 'rgba(255,208,0,0.20)',
+    },
   },
   {
     id: '2',
@@ -31,6 +52,15 @@ const SLIDES = [
     title: 'No Surprises.\nKnow Your Fare.',
     subtitle: 'See the full price before you ride. Base ₵5 + ₵2.50/km — no hidden fees, ever.',
     features: ['Base Fare ₵5.00', '₵2.50 per km', '₵0.50 per min'],
+    // Standard bike — shown whole (front wheel + tyres visible) in the top area.
+    bg: {
+      image: require('@/assets/images/bike-standard.png'),
+      heroMode: 'contain',
+      // Zoom into the front quarter (front wheel + fairing).
+      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
+      colors: ['#0A1F2E', '#0A1424', '#09090B'],
+      glow: 'rgba(255,208,0,0.22)',
+    },
   },
   {
     id: '3',
@@ -38,6 +68,15 @@ const SLIDES = [
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
+    // Premium bike — shown whole in the top area (no crop), text sits below.
+    bg: {
+      image: require('@/assets/images/bike-premium.png'),
+      heroMode: 'contain',
+      // Zoom into the front quarter (front wheel + fairing).
+      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
+      colors: ['#0A2A1C', '#0A1A14', '#09090B'],
+      glow: 'rgba(34,197,94,0.22)',
+    },
   },
 ];
 
@@ -46,17 +85,26 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const { completeOnboarding } = useApp();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
+  // Drives the crossfade between each slide's background.
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: currentIndex,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [currentIndex, progress]);
 
   const handleNext = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (currentIndex < SLIDES.length - 1) {
-      const nextIndex = currentIndex + 1;
-      flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-      setCurrentIndex(nextIndex);
+      setCurrentIndex(currentIndex + 1); // drives both the slide + background crossfade
     } else {
       await completeOnboarding();
-      router.replace('/(auth)/signup');
+      // push (not replace) so the welcome flow stays in history and the signup
+      // back button can return here.
+      router.push('/(auth)/signup');
     }
   };
 
@@ -65,42 +113,53 @@ export default function OnboardingScreen() {
     router.replace('/(auth)/login');
   };
 
-  const renderSlide = ({ item }: { item: typeof SLIDES[0] }) => (
-    <View style={[styles.slide, { width }]}>
-      <View style={styles.textContent}>
-        <View style={styles.tagPill}>
-          <Text style={styles.tagText}>{item.tag}</Text>
-        </View>
-        <Text style={styles.title}>{item.title}</Text>
-        <Text style={styles.subtitle}>{item.subtitle}</Text>
-        {item.features && (
-          <View style={styles.featureList}>
-            {item.features.map((f) => (
-              <View key={f} style={styles.featureRow}>
-                <View style={styles.featureDot} />
-                <Text style={styles.featureText}>{f}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </View>
-  );
+  const slide = SLIDES[currentIndex];
+  const isContain = slide.bg.heroMode === 'contain';
 
   return (
     <View style={styles.container}>
-      {/* Full-screen atmospheric welcome background — anchored so the rider
-          and motorbike stay in frame, with the text overlaid on a darker
-          lower third. */}
-      <Image
-        source={require('@/assets/images/onboarding-hero.png')}
-        style={styles.heroBg}
-        resizeMode="cover"
-      />
+      {/* Per-slide backdrop, crossfaded as you advance: the full-bleed photo for
+          'cover' slides, or a coloured gradient for 'contain' product slides.
+          (The contained product image itself sits in normal flow below, so it
+          can never cover the text or the footer.) */}
+      {SLIDES.map((item, i) => {
+        const opacity = progress.interpolate({
+          inputRange: [i - 1, i, i + 1],
+          outputRange: [0, 1, 0],
+          extrapolate: 'clamp',
+        });
+        return (
+          <Animated.View
+            key={item.id}
+            style={[StyleSheet.absoluteFill, { opacity }]}
+            pointerEvents="none"
+          >
+            {item.bg.image && item.bg.heroMode !== 'contain' ? (
+              <Image source={item.bg.image} style={styles.heroBg} resizeMode="cover" />
+            ) : (
+              <LinearGradient
+                colors={item.bg.colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
+            {/* Corner glow for depth */}
+            <LinearGradient
+              colors={[item.bg.glow, 'transparent']}
+              start={{ x: 1, y: 0 }}
+              end={{ x: 0.15, y: 0.65 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        );
+      })}
+      {/* Shared bottom scrim so the text stays legible on every background. */}
       <LinearGradient
         colors={['rgba(9,9,11,0.5)', 'rgba(9,9,11,0.15)', 'rgba(9,9,11,0.75)', 'rgba(9,9,11,0.98)']}
         locations={[0, 0.4, 0.72, 0.92]}
         style={StyleSheet.absoluteFill}
+        pointerEvents="none"
       />
 
       {/* Header */}
@@ -114,18 +173,39 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Slides — text sits over the lower third of the photo */}
-      <FlatList
-        ref={flatListRef}
-        data={SLIDES}
-        renderItem={renderSlide}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEnabled={false}
-        style={styles.flatList}
-      />
+      {/* Content column: the contained product image (if any) sits up top, and
+          the text sits below it — both in normal flow, so nothing overlaps. */}
+      <View style={styles.slide}>
+        {/* Cropped bike hero, absolutely positioned in the top band so it never
+            disturbs the flow of the text/footer below. The zoom shows only the
+            front quarter; the screen edges do the cropping. */}
+        {isContain && slide.bg.image && (
+          <View style={styles.heroClip}>
+            <Image
+              source={slide.bg.image}
+              style={[styles.heroImg, slide.bg.imageStyle]}
+              resizeMode="contain"
+            />
+          </View>
+        )}
+        <View style={styles.textContent}>
+          <View style={styles.tagPill}>
+            <Text style={styles.tagText}>{slide.tag}</Text>
+          </View>
+          <Text style={styles.title}>{slide.title}</Text>
+          <Text style={styles.subtitle}>{slide.subtitle}</Text>
+          {slide.features && (
+            <View style={styles.featureList}>
+              {slide.features.map((f) => (
+                <View key={f} style={styles.featureRow}>
+                  <View style={styles.featureDot} />
+                  <Text style={styles.featureText}>{f}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
 
       {/* Bottom */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
@@ -163,6 +243,22 @@ const styles = StyleSheet.create({
     left: -width * 0.09,
     width: width * 1.18,
     height: height,
+  },
+  // Cropped hero: an ABSOLUTE clip box in the top band. Absolute keeps it out of
+  // flow (the text/footer below lay out untouched); overflow:hidden confines the
+  // zoomed image — including its opaque background — to this band so it can't
+  // cover the text. The per-slide zoom shows only the front quarter of the bike.
+  heroClip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.46,
+    overflow: 'hidden',
+  },
+  heroImg: {
+    width: '100%',
+    height: '100%',
   },
   header: {
     flexDirection: 'row',

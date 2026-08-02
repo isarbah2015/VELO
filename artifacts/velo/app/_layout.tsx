@@ -16,29 +16,27 @@ import { Stack, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppProvider, useApp } from '@/context/AppContext';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
-// Inner component that waits for auth initialization before rendering Stack
-function AuthGate({ children }: { children: React.ReactNode }) {
+// Single splash bridge: show the animated splash until BOTH the branded
+// animation has finished AND Firebase has restored the auth state, then hand
+// off directly to the navigator. One continuous splash — no spinner flash or
+// second logo in between (the native splash simply hands over to this one).
+function Bootstrap() {
   const { authInitialized } = useApp();
+  const [animDone, setAnimDone] = useState(false);
+  const ready = authInitialized && animDone;
 
-  // Don't render the navigation tree until Firebase has finished
-  // checking the persisted auth state. This prevents the login screen
-  // from flashing briefly on every app restart.
-  if (!authInitialized) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#FFD000" />
-      </View>
-    );
-  }
-
-  return <>{children}</>;
+  return (
+    <>
+      {!ready && <AnimatedSplash onDone={() => setAnimDone(true)} />}
+      {ready && <RootLayoutNav />}
+    </>
+  );
 }
 
 function RootLayoutNav() {
@@ -48,16 +46,33 @@ function RootLayoutNav() {
   // pushes carry { rideId, type } — riders land on live tracking, a driver's
   // new-request push opens their dashboard.
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; rideId?: string };
+    const route = (data?: { type?: string; rideId?: string }) => {
       if (!data) return;
       if (data.type === 'request') {
         router.push('/(driver-tabs)');
+      } else if (data.type === 'expired') {
+        // No trip to track — send the rider home to rebook.
+        router.push('/(tabs)');
       } else if (data.rideId) {
         router.push({ pathname: '/tracking', params: { rideId: data.rideId } });
       }
+    };
+
+    // Warm case: a tap while the app is already running.
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      route(response.notification.request.content.data as { type?: string; rideId?: string });
     });
-    return () => sub.remove();
+
+    // Cold-start case: the app was killed and launched *by* tapping the
+    // notification. That response isn't delivered to the listener above — it's
+    // only available here, so without this the deep-link is silently dropped.
+    let cancelled = false;
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (cancelled || !response) return;
+      route(response.notification.request.content.data as { type?: string; rideId?: string });
+    });
+
+    return () => { cancelled = true; sub.remove(); };
   }, [router]);
 
   return (
@@ -83,7 +98,6 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const [splashDone, setSplashDone] = useState(false);
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -91,12 +105,10 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
-
+  // Note: the native splash is NOT hidden here on font-load — AnimatedSplash
+  // hides it on its own first paint (onLayout) so the native V logo stays up
+  // continuously until the animated V is on screen underneath it. One logo,
+  // no blank frame, no second splash.
   if (!fontsLoaded && !fontError) return null;
 
   return (
@@ -106,10 +118,7 @@ export default function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <AppProvider>
               <ErrorBoundary>
-                <AuthGate>
-                  {!splashDone && <AnimatedSplash onDone={() => setSplashDone(true)} />}
-                  {splashDone && <RootLayoutNav />}
-                </AuthGate>
+                <Bootstrap />
               </ErrorBoundary>
             </AppProvider>
           </QueryClientProvider>
@@ -119,11 +128,3 @@ export default function RootLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: '#09090B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

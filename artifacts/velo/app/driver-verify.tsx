@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,12 +27,20 @@ export default function DriverVerifyScreen() {
   const [uris, setUris] = useState<Partial<Record<DocKey, string>>>({});
   const [status, setStatus] = useState<VerificationStatus>('unverified');
   const [submitting, setSubmitting] = useState(false);
+  const [plate, setPlate] = useState('');
+  const [model, setModel] = useState('');
+  const [color, setColor] = useState('');
 
   useEffect(() => {
     if (!user) return;
     getVerification(user.uid).then((v) => {
       setStatus(v.status);
       if (v.docs) setUris(v.docs);
+      if (v.vehicle) {
+        setPlate(v.vehicle.plate ?? '');
+        setModel(v.vehicle.model ?? '');
+        setColor(v.vehicle.color ?? '');
+      }
     });
   }, [user]);
 
@@ -53,7 +61,8 @@ export default function DriverVerifyScreen() {
     }
   };
 
-  const allProvided = DOC_FIELDS.every((f) => uris[f.key]);
+  const vehicleOk = plate.trim().length >= 4 && model.trim().length >= 2 && color.trim().length >= 2;
+  const allProvided = DOC_FIELDS.every((f) => uris[f.key]) && vehicleOk;
 
   const submit = async () => {
     if (!user || !allProvided) return;
@@ -67,7 +76,11 @@ export default function DriverVerifyScreen() {
           return [f.key, url] as const;
         })
       );
-      await submitVerification(user.uid, Object.fromEntries(entries) as Record<DocKey, string>);
+      await submitVerification(
+        user.uid,
+        Object.fromEntries(entries) as Record<DocKey, string>,
+        { plate: plate.trim(), model: model.trim(), color: color.trim() }
+      );
       setStatus('pending');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Submitted', 'Your documents are under review. We\'ll notify you once verified.');
@@ -99,8 +112,8 @@ export default function DriverVerifyScreen() {
         </View>
 
         <Text style={styles.intro}>
-          Upload a clear photo of your Ghana Card and all four sides of your motorcycle. This keeps
-          riders safe and unlocks payouts.
+          Upload a clear photo of your Ghana Card and all four sides of your motorcycle, and add your
+          plate + bike details. This keeps riders safe and unlocks payouts.
         </Text>
 
         {DOC_FIELDS.map((f) => (
@@ -126,6 +139,45 @@ export default function DriverVerifyScreen() {
             {!locked && <Ionicons name={uris[f.key] ? 'checkmark-circle' : 'chevron-forward'} size={20} color={uris[f.key] ? '#22C55E' : '#3F3F46'} />}
           </TouchableOpacity>
         ))}
+
+        {/* Vehicle details — the plate + description a rider uses to spot the
+            right bike, and the platform keeps on record. */}
+        <Text style={styles.sectionTitle}>Vehicle details</Text>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Number plate</Text>
+          <TextInput
+            style={styles.input}
+            value={plate}
+            onChangeText={setPlate}
+            editable={!locked}
+            placeholder="e.g. GR-1234-24"
+            placeholderTextColor="#52525B"
+            autoCapitalize="characters"
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Make & model</Text>
+          <TextInput
+            style={styles.input}
+            value={model}
+            onChangeText={setModel}
+            editable={!locked}
+            placeholder="e.g. Bajaj Boxer"
+            placeholderTextColor="#52525B"
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Colour</Text>
+          <TextInput
+            style={styles.input}
+            value={color}
+            onChangeText={setColor}
+            editable={!locked}
+            placeholder="e.g. Red"
+            placeholderTextColor="#52525B"
+            autoCapitalize="words"
+          />
+        </View>
       </ScrollView>
 
       {!locked && (
@@ -169,6 +221,19 @@ const styles = StyleSheet.create({
   },
   docLabel: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   docSub: { fontSize: 13, color: '#71717A', marginTop: 2 },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginTop: 24, marginBottom: 12 },
+  field: { marginBottom: 14, gap: 6 },
+  fieldLabel: { fontSize: 13, color: '#A1A1AA', fontWeight: '500' },
+  input: {
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
   footer: {
     position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 12,
     backgroundColor: '#09090B', borderTopWidth: 1, borderTopColor: '#18181B',

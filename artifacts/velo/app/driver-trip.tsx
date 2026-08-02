@@ -1,17 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
-import { updateDriverLocation, updateRideStatus } from '@/services/rides';
+import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
+import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
+import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
+import {
+  saveActiveTrip,
+  updateActiveTripPhase,
+  clearActiveTrip,
+  showOngoingNotification,
+} from '@/services/tripSession';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
+
+type LngLat = [number, number];
 
 const { width, height } = Dimensions.get('window');
 
@@ -19,25 +31,87 @@ const { width, height } = Dimensions.get('window');
 // rider follows the bike on their map) and steps the ride through its
 // lifecycle — accepted → arrived → in_progress → completed. The fare is only
 // booked into earnings when the trip actually completes here.
-type Phase = 'toPickup' | 'arrived' | 'inProgress';
+// Yandex-Pro style stages: nav to pickup → arrived (wait) → nav to drop-off →
+// completed summary (fare + rate rider).
+type Phase = 'toPickup' | 'arrived' | 'inProgress' | 'summary';
+
+const FREE_WAIT_MIN = 5; // free wait once arrived at pickup
+const NO_SHOW_MIN = 10; // driver may cancel a no-show rider after this
+const ARRIVE_RADIUS_KM = 0.05; // END RIDE unlocks within 50 m of drop-off
 
 export default function DriverTripScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, refreshDriverStatus } = useApp();
+  const { user, refreshDriverStatus, navMarker } = useApp();
   const params = useLocalSearchParams<{
-    rideId: string; riderName?: string; from?: string; to?: string; price?: string;
+    rideId: string; riderName?: string; riderPhone?: string; from?: string; to?: string; price?: string;
+    fromLat?: string; fromLng?: string; toLat?: string; toLng?: string;
   }>();
 
   const rideId = params.rideId;
   const riderName = params.riderName ?? 'Your rider';
+  const riderPhone = params.riderPhone ?? '';
   const from = params.from ?? 'Pickup';
   const to = params.to ?? 'Destination';
   const price = parseFloat(params.price ?? '0');
 
+  const toLL = (lat?: string, lng?: string): LngLat | undefined => {
+    const a = parseFloat(lat ?? ''); const o = parseFloat(lng ?? '');
+    return Number.isFinite(a) && Number.isFinite(o) ? [o, a] : undefined;
+  };
+  const pickupLL = toLL(params.fromLat, params.fromLng);
+  const destLL = toLL(params.toLat, params.toLng);
+
   const [phase, setPhase] = useState<Phase>('toPickup');
-  const startRef = useRef(Date.now());
+  const [driverPos, setDriverPos] = useState<LngLat | null>(null);
+  const [riderPos, setRiderPos] = useState<LngLat | null>(null);
+  const [rating, setRating] = useState(5);
+  const [now, setNow] = useState(Date.now()); // 1s ticker for wait/elapsed timers
+  const [muted, setMuted] = useState(false); // voice-guidance mute
+  const startRef = useRef(0); // trip start (inProgress)
+  const arrivedRef = useRef(0); // arrived-at-pickup time
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+
+  // 1s ticker drives the wait timer (Stage 3) and elapsed time (Stage 4).
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Restore the saved mute preference; stop any speech when leaving the screen.
+  useEffect(() => {
+    AsyncStorage.getItem('velo_voice_muted').then((v) => {
+      const m = v === '1';
+      setMuted(m);
+      setVoiceMuted(m);
+    });
+    return () => stopVoice();
+  }, []);
+
+  const toggleMute = () => {
+    Haptics.selectionAsync();
+    setMuted((m) => {
+      const next = !m;
+      setVoiceMuted(next);
+      AsyncStorage.setItem('velo_voice_muted', next ? '1' : '0');
+      if (!next) speak('Voice guidance on.', { interrupt: true });
+      return next;
+    });
+  };
+
+  // Follow the rider's live position (streamed from their tracking screen).
+  useEffect(() => {
+    if (!rideId) return;
+    return watchRide(rideId, (ride) => {
+      if (ride?.riderLoc) setRiderPos([ride.riderLoc.lng, ride.riderLoc.lat]);
+    });
+  }, [rideId]);
+
+  const handleCall = () => {
+    const num = riderPhone.replace(/\s/g, '');
+    if (!num) { Alert.alert('No number', "The rider's phone number isn't available."); return; }
+    Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot call', 'Calling is unavailable on this device.'));
+  };
 
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 12);
@@ -52,7 +126,10 @@ export default function DriverTripScreen() {
         if (status !== 'granted' || cancelled) return;
         watchRef.current = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 4000 },
-          (loc) => updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude)
+          (loc) => {
+            setDriverPos([loc.coords.longitude, loc.coords.latitude]);
+            updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude);
+          }
         );
       } catch {
         // No GPS (simulator/web) — the rider still sees status updates.
@@ -65,28 +142,117 @@ export default function DriverTripScreen() {
     };
   }, [rideId]);
 
+  // App-kill recovery: mirror the active trip to AsyncStorage on mount so a
+  // relaunch (after the OS kills a backgrounded app, or a crash) can resume the
+  // exact same live trip instead of dropping the passenger. Cleared when the
+  // trip ends (summary/cancel).
+  useEffect(() => {
+    if (!rideId) return;
+    saveActiveTrip({
+      rideId,
+      riderName: params.riderName,
+      riderPhone: params.riderPhone,
+      from: params.from,
+      to: params.to,
+      price: params.price,
+      fromLat: params.fromLat,
+      fromLng: params.fromLng,
+      toLat: params.toLat,
+      toLng: params.toLng,
+      phase: 'toPickup',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rideId]);
+
+  // Keep the persisted phase and the ongoing "trip in progress" notification in
+  // sync with the current stage, so a resume lands correctly and the driver has
+  // a persistent tap-back entry in the shade while navigating.
+  useEffect(() => {
+    if (!rideId || phase === 'summary') return;
+    updateActiveTripPhase(rideId, phase);
+    const line =
+      phase === 'toPickup'
+        ? `Heading to pick up ${riderName.split(' ')[0]} · ${from}`
+        : phase === 'arrived'
+        ? `Waiting for ${riderName.split(' ')[0]} at ${from}`
+        : `Trip in progress · to ${to}`;
+    showOngoingNotification('VELO — trip active', line);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, rideId]);
+
+  // Persist a ride-status change without letting a dropped write (offline, or a
+  // missing ride doc) crash the flow — the local UI advances regardless.
+  const safeStatus = async (status: Parameters<typeof updateRideStatus>[1], extra?: Parameters<typeof updateRideStatus>[2]) => {
+    if (!rideId) return;
+    try {
+      await updateRideStatus(rideId, status, extra);
+    } catch (e) {
+      console.warn('[driver-trip] status update failed:', status, e);
+    }
+  };
+
   const arrivedAtPickup = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    arrivedRef.current = Date.now();
     setPhase('arrived');
-    if (rideId) await updateRideStatus(rideId, 'arrived');
+    speak(`You've arrived at the pickup. Meet ${riderName.split(' ')[0]}.`, { interrupt: true });
+    await safeStatus('arrived');
   };
 
   const startTrip = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPhase('inProgress');
     startRef.current = Date.now();
-    if (rideId) await updateRideStatus(rideId, 'in_progress');
+    speak('Trip started. Navigating to the destination.', { interrupt: true });
+    await safeStatus('in_progress');
   };
 
-  const completeTrip = async () => {
+  // Stage 3: rider never showed after the no-show window — cancel and return.
+  const cancelNoShow = () => {
+    Alert.alert(
+      'Cancel — rider no-show',
+      `${riderName} hasn't shown up after ${NO_SHOW_MIN} minutes. Cancel this trip?`,
+      [
+        { text: 'Keep waiting', style: 'cancel' },
+        {
+          text: 'Cancel trip',
+          style: 'destructive',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            watchRef.current?.remove();
+            await clearActiveTrip();
+            await safeStatus('cancelled');
+            router.replace('/(driver-tabs)');
+          },
+        },
+      ]
+    );
+  };
+
+  // Stage 4 → 5: end ride at the drop-off. Books the fare + shows the summary.
+  const endRide = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const durationMin = Math.max(1, Math.round((Date.now() - startRef.current) / 60000));
     watchRef.current?.remove();
-    if (rideId) await updateRideStatus(rideId, 'completed', { durationMin });
-    if (user) {
-      await recordCompletedRide(user.uid, price);
-      await refreshDriverStatus();
+    await safeStatus('completed', { durationMin });
+    try {
+      if (user) {
+        await recordCompletedRide(user.uid, price);
+        await refreshDriverStatus();
+      }
+    } catch (e) {
+      console.warn('[driver-trip] booking earnings failed:', e);
     }
+    // Trip is over — drop the recovery record + ongoing notification.
+    await clearActiveTrip();
+    speak('Ride completed.', { interrupt: true });
+    setPhase('summary');
+  };
+
+  // Stage 5 → IDLE: save the driver's rating of the rider and return.
+  const finalizeRide = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await safeStatus('completed', { riderRating: rating });
     router.replace('/(driver-tabs)');
   };
 
@@ -106,75 +272,368 @@ export default function DriverTripScreen() {
     );
   };
 
-  const primary =
-    phase === 'toPickup'
-      ? { label: 'Arrived at pickup', onPress: arrivedAtPickup, icon: 'flag-outline' as const }
-      : phase === 'arrived'
-      ? { label: 'Start trip', onPress: startTrip, icon: 'play' as const }
-      : { label: 'Complete trip', onPress: completeTrip, icon: 'checkmark-done' as const };
+  // Stage 3 wait timer, Stage 4 elapsed timer, and the drop-off geo-gate.
+  const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const waitSec = phase === 'arrived' && arrivedRef.current ? Math.max(0, (now - arrivedRef.current) / 1000) : 0;
+  const overFreeWait = waitSec > FREE_WAIT_MIN * 60;
+  const canNoShow = waitSec >= NO_SHOW_MIN * 60; // rider never showed → allow cancel
+  const elapsedMin = phase === 'inProgress' && startRef.current ? Math.floor((now - startRef.current) / 60000) : 0;
+  const atDropoff = !!driverPos && !!destLL && distanceKm(driverPos, destLL) < ARRIVE_RADIUS_KM;
+  const canEnd = !driverPos || atDropoff; // no GPS → allow; otherwise require < 50 m
 
+  // Voice: announce the approach to the drop-off once, then arrival.
+  const approachRef = useRef(false);
+  const arriveVoicedRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'inProgress' || !driverPos || !destLL) return;
+    const km = distanceKm(driverPos, destLL);
+    if (km >= 35) return; // implausible fix
+    if (!approachRef.current && km < 0.2 && km >= ARRIVE_RADIUS_KM) {
+      approachRef.current = true;
+      speak('Approaching your destination.', { interrupt: true });
+    }
+    if (!arriveVoicedRef.current && km < ARRIVE_RADIUS_KM) {
+      arriveVoicedRef.current = true;
+      speak('You have reached the destination. Tap end ride.', { interrupt: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, phase]);
   const statusLine =
-    phase === 'toPickup' ? 'Head to pickup' : phase === 'arrived' ? 'Waiting for rider' : 'Trip in progress';
+    phase === 'toPickup' ? 'to pickup' : phase === 'inProgress' ? 'to destination' : '';
+  // Fare breakdown for the Stage-5 summary.
+  const baseFare = 5;
+  const distanceFare = Math.max(0, price - baseFare);
+
+  // Navigation target: the rider's pickup while heading there, then the
+  // destination once the trip starts.
+  const target: LngLat | null =
+    phase === 'inProgress' ? destLL ?? null : riderPos ?? pickupLL ?? null;
+  // Seed an origin a few km from pickup so the route/ETA read believably when
+  // the simulator/device isn't giving a nearby GPS fix; prefer real GPS.
+  const seeded: LngLat | null = pickupLL ? [pickupLL[0] + 0.03, pickupLL[1] + 0.028] : null;
+  // Prefer real GPS only when it's a plausibly-nearby fix (< 35 km from the
+  // target); otherwise fall back to pickup (in-trip) or the seeded point (to
+  // pickup) so the simulator's far-away default location can't blow up the ETA.
+  const fallbackOrigin: LngLat | null = phase === 'inProgress' ? (pickupLL ?? seeded) : seeded;
+  const origin: LngLat | null =
+    driverPos && target && distanceKm(driverPos, target) < 35 ? driverPos : fallbackOrigin;
+
+  // Fetch a road-following route for the current leg. Re-runs when the phase or
+  // the endpoints change (not on every GPS tick, to avoid hammering the router).
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const legKey = `${phase}|${pickupLL?.join()}|${destLL?.join()}|${riderPos?.join()}`;
+  useEffect(() => {
+    if (!origin || !target) { setRoute(null); return; }
+    let alive = true;
+    getRoute(origin, target).then((r) => { if (alive) setRoute(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey]);
+
+  // Off-course recalculation: if the driver strays more than OFF_COURSE_KM from
+  // the drawn route, recompute it from their current position (throttled so a
+  // brief GPS wobble or a genuine detour can't hammer the router).
+  const OFF_COURSE_KM = 0.06; // ~60 m
+  const RECALC_COOLDOWN_MS = 15000;
+  const lastRecalcRef = useRef(0);
+  useEffect(() => {
+    if (!driverPos || !target) return;
+    if (!route || route.coords.length < 2) return;
+    if (distanceKm(driverPos, target) >= 35) return; // ignore an implausible fix
+    if (distanceToPathKm(driverPos, route.coords) <= OFF_COURSE_KM) return;
+    const t = Date.now();
+    if (t - lastRecalcRef.current < RECALC_COOLDOWN_MS) return;
+    lastRecalcRef.current = t;
+    let alive = true;
+    getRoute(driverPos, target).then((r) => { if (alive) setRoute(r); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, target]);
+
+  // Turn-by-turn voice: announce each upcoming maneuver once at ~200 m ("In 200
+  // meters, turn left onto …") and again at the turn (~40 m). We only track the
+  // next un-passed maneuver so guidance stays sequential. State resets per leg.
+  const spokenRef = useRef<{ key: string; idx: number; pre: boolean }>({ key: '', idx: 0, pre: false });
+  useEffect(() => {
+    if (muted || !driverPos || !route || route.steps.length === 0) return;
+    if (phase !== 'toPickup' && phase !== 'inProgress') return;
+    // Reset progress when the leg changes.
+    if (spokenRef.current.key !== legKey) spokenRef.current = { key: legKey, idx: 0, pre: false };
+    const s = spokenRef.current;
+    // Advance past any maneuvers we've already driven through (skip 'depart').
+    while (s.idx < route.steps.length && route.steps[s.idx].type === 'depart') s.idx++;
+    const step = route.steps[s.idx];
+    if (!step) return;
+    const d = distanceKm(driverPos, step.location) * 1000; // metres to the turn
+    if (d > 5000) return; // implausible GPS fix — don't announce
+    if (step.type === 'arrive') return; // arrival is handled separately
+    if (d <= 45) {
+      speak(maneuverText(step), { interrupt: true });
+      s.idx += 1; s.pre = false; // move on to the next maneuver
+    } else if (d <= 220 && !s.pre) {
+      speak(maneuverText(step, d));
+      s.pre = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverPos, route, phase, muted]);
+
+  // Live countdown: recompute distance from the driver's *current* position
+  // straight to the target on every GPS tick (cheap, no routing API) — the
+  // drawn route line stays the road geometry, but the number ticks down as the
+  // driver moves. ×1.3 approximates road vs straight-line distance.
+  const ROAD_FACTOR = 1.3;
+  const liveKm =
+    driverPos && target && distanceKm(driverPos, target) < 35
+      ? distanceKm(driverPos, target) * ROAD_FACTOR
+      : route?.distanceKm ?? (origin && target ? distanceKm(origin, target) * ROAD_FACTOR : null);
+  const distKm = liveKm;
+  const etaMin = distKm != null ? etaMinutes(distKm) : null;
+  const targetLabel = phase === 'inProgress' ? 'to destination' : `to ${riderName.split(' ')[0]}`;
+
+  // The driver's vehicle position on the nav map: their real GPS when it's a
+  // plausibly-nearby fix, otherwise the seeded origin so the puck always sits on
+  // the route (the simulator rarely supplies an on-route fix). Heading points
+  // along the route ahead so the map rotates like Uber/Google Maps.
+  const navPos: LngLat | null = phase === 'toPickup' || phase === 'inProgress' ? origin : driverPos;
+  const navHeading = (() => {
+    if (!navPos) return 0;
+    const coords = route?.coords;
+    if (coords && coords.length > 1) {
+      // nearest route vertex to the vehicle, then look ahead a few points
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < coords.length; i++) {
+        const dd = distanceKm(navPos, coords[i]);
+        if (dd < bestD) { bestD = dd; best = i; }
+      }
+      const ahead = coords[Math.min(best + 3, coords.length - 1)];
+      if (ahead && (ahead[0] !== navPos[0] || ahead[1] !== navPos[1])) return bearing(navPos, ahead);
+    }
+    return target ? bearing(navPos, target) : 0;
+  })();
+
+  // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
+  const enter = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(enter, { toValue: 1, useNativeDriver: true, friction: 7, tension: 60 }).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [enter, pulse]);
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Full-screen live map */}
+      {/* Full-screen live map — real pickup/destination + live driver & rider */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="route" />
+        <LiveMap
+          width={width}
+          height={height}
+          mode="route"
+          pickup={pickupLL}
+          dest={destLL}
+          driver={navPos}
+          heading={navHeading}
+          rider={riderPos}
+          routeLine={route?.coords ?? null}
+          follow={phase === 'toPickup' || phase === 'inProgress'}
+          navMarker={navMarker}
+          hidePoi={phase === 'toPickup' || phase === 'inProgress'}
+        />
       </View>
-      <View style={styles.mapDim} pointerEvents="none" />
+      {/* Dim only behind the big cards (arrived / summary); nav views stay clean. */}
+      {(phase === 'arrived' || phase === 'summary') && <View style={styles.mapDim} pointerEvents="none" />}
 
-      {/* Header pill + SOS */}
-      <View style={[styles.header, { top: topPad }]}>
-        <View style={styles.livePill}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>{statusLine}</Text>
-        </View>
-        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS}>
+      {/* Corners: SOS (left) + voice mute & rider avatar (right) */}
+      <View style={[styles.corners, { top: topPad }]}>
+        <TouchableOpacity style={styles.sosBtn} onPress={handleSOS} activeOpacity={0.85}>
           <Ionicons name="alert-circle" size={22} color="#EF4444" />
         </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {phase !== 'summary' && (
+            <TouchableOpacity
+              style={[styles.muteBtn, muted && styles.muteBtnOff]}
+              onPress={toggleMute}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={20} color={muted ? '#71717A' : '#FFD000'} />
+            </TouchableOpacity>
+          )}
+          {(phase === 'arrived' || phase === 'inProgress') && (
+            <TouchableOpacity
+              style={styles.riderChipTop}
+              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.riderChipInitial}>{riderName.charAt(0).toUpperCase()}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Bottom trip card */}
-      <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={styles.riderRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{riderName.charAt(0).toUpperCase()}</Text>
+      {/* BIG center-top ETA during navigation (Stages 2 & 4) */}
+      {(phase === 'toPickup' || phase === 'inProgress') && etaMin != null && distKm != null && (
+        <Animated.View
+          style={[
+            styles.bigEta,
+            { top: topPad, opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] },
+          ]}
+        >
+          <Text style={styles.bigEtaMin}>
+            {etaMin}<Text style={styles.bigEtaUnit}> min</Text>
+          </Text>
+          <View style={styles.bigEtaRow}>
+            <Animated.View style={[styles.livePulse, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }]} />
+            <Text style={styles.bigEtaSub}>{distKm.toFixed(1)} km · {statusLine}</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.riderName} numberOfLines={1}>{riderName}</Text>
-            <Text style={styles.fare}>₵{price.toFixed(2)}</Text>
+        </Animated.View>
+      )}
+
+      {/* STAGE 2 — navigating to pickup: minimal bar (address + call + arrived) */}
+      {phase === 'toPickup' && (
+        <LinearGradient
+          colors={['#1B1B1F', '#131316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}
+        >
+          <View style={[styles.miniPin, { borderColor: 'rgba(255,208,0,0.35)', backgroundColor: 'rgba(255,208,0,0.12)' }]}>
+            <Ionicons name="navigate" size={16} color="#FFD000" />
           </View>
-          <TouchableOpacity
-            style={styles.chatBtn}
-            onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
-          >
-            <Ionicons name="chatbubble-ellipses" size={18} color="#FFD000" />
+          <View style={styles.miniTextWrap}>
+            <Text style={styles.miniLabel} numberOfLines={1}>PICKUP · {riderName}</Text>
+            <Text style={styles.miniTo} numberOfLines={1}>{from}</Text>
+          </View>
+          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={18} color="#FFD000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.callBtn}>
-            <Ionicons name="call" size={18} color="#000" />
+          <TouchableOpacity onPress={arrivedAtPickup} activeOpacity={0.9}>
+            <LinearGradient colors={['#FFDE5C', '#FFB800']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.miniComplete}>
+              <Ionicons name="flag" size={16} color="#000" />
+              <Text style={styles.miniCompleteText}>Arrived</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </LinearGradient>
+      )}
+
+      {/* STAGE 3 — arrived at pickup: wait timer + call/text + start ride */}
+      {phase === 'arrived' && (
+        <View style={[styles.card, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.arrivedHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.arrivedTitle}>You've arrived</Text>
+              <Text style={styles.arrivedSub} numberOfLines={1}>
+                {riderName} · {overFreeWait ? 'paid waiting' : `${FREE_WAIT_MIN} min free wait`}
+              </Text>
+            </View>
+            <View style={[styles.waitBadge, overFreeWait && { borderColor: '#EF4444' }]}>
+              <Ionicons name="time-outline" size={15} color={overFreeWait ? '#EF4444' : '#FFD000'} />
+              <Text style={[styles.waitText, overFreeWait && { color: '#EF4444' }]}>{clock(waitSec)}</Text>
+            </View>
+          </View>
+          <View style={styles.arrivedActions}>
+            <TouchableOpacity style={styles.arrivedAction} onPress={handleCall} activeOpacity={0.85}>
+              <Ionicons name="call" size={20} color="#FFD000" />
+              <Text style={styles.arrivedActionText}>Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.arrivedAction}
+              onPress={() => router.push({ pathname: '/chat', params: { rideId, otherName: riderName } })}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chatbubble-ellipses" size={20} color="#FFD000" />
+              <Text style={styles.arrivedActionText}>Text</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.primaryBtn} onPress={startTrip} activeOpacity={0.85}>
+            <Ionicons name="play" size={20} color="#000" />
+            <Text style={styles.primaryText}>Start ride</Text>
+          </TouchableOpacity>
+          {canNoShow && (
+            <TouchableOpacity style={styles.noShowBtn} onPress={cancelNoShow} activeOpacity={0.85}>
+              <Ionicons name="close-circle-outline" size={18} color="#EF4444" />
+              <Text style={styles.noShowText}>Cancel — rider no-show</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* STAGE 4 — in progress: premium drop-off sheet, END RIDE geo-gated */}
+      {phase === 'inProgress' && (
+        <LinearGradient
+          colors={['#1B1B1F', '#131316']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.miniBar, { paddingBottom: insets.bottom + 14 }]}
+        >
+          <View style={styles.miniPin}>
+            <Ionicons name="location" size={17} color="#EF4444" />
+          </View>
+          <View style={styles.miniTextWrap}>
+            <Text style={styles.miniLabel} numberOfLines={1}>DROPPING OFF · {elapsedMin}m</Text>
+            <Text style={styles.miniTo} numberOfLines={1}>{to}</Text>
+          </View>
+          <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={18} color="#FFD000" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={endRide} disabled={!canEnd} activeOpacity={0.9}>
+            <LinearGradient
+              colors={canEnd ? ['#FFDE5C', '#FFB800'] : ['#2A2A2D', '#232326']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.miniComplete}
+            >
+              <Ionicons name="checkmark-done" size={18} color={canEnd ? '#000' : '#71717A'} />
+              <Text style={[styles.miniCompleteText, !canEnd && { color: '#71717A' }]}>{canEnd ? 'End ride' : 'Drive'}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </LinearGradient>
+      )}
+
+      {/* STAGE 5 — completed: fare summary + rate rider */}
+      {phase === 'summary' && (
+        <View style={[styles.summaryCard, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.summaryHandle} />
+          <View style={styles.summaryCheck}>
+            <Ionicons name="checkmark-done" size={28} color="#22C55E" />
+          </View>
+          <Text style={styles.summaryTitle}>Ride completed</Text>
+          <Text style={styles.summarySub} numberOfLines={1}>{from} → {to}</Text>
+
+          <View style={styles.fareBox}>
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Base fare</Text>
+              <Text style={styles.fareValue}>₵{baseFare.toFixed(2)}</Text>
+            </View>
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Distance</Text>
+              <Text style={styles.fareValue}>₵{distanceFare.toFixed(2)}</Text>
+            </View>
+            <View style={styles.fareDivider} />
+            <View style={styles.fareRow}>
+              <Text style={styles.fareTotalLabel}>Total</Text>
+              <Text style={styles.fareTotalValue}>₵{price.toFixed(2)}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.rateLabel}>Rate {riderName.split(' ')[0]}</Text>
+          <View style={styles.stars}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <TouchableOpacity key={n} onPress={() => { Haptics.selectionAsync(); setRating(n); }} activeOpacity={0.7}>
+                <Ionicons name={n <= rating ? 'star' : 'star-outline'} size={30} color="#FFD000" style={{ marginHorizontal: 4 }} />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={[styles.primaryBtn, { width: '100%' }]} onPress={finalizeRide} activeOpacity={0.85}>
+            <Text style={styles.primaryText}>Complete ride</Text>
           </TouchableOpacity>
         </View>
-
-        <View style={styles.routeBox}>
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, { backgroundColor: '#FFD000' }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{from}</Text>
-          </View>
-          <View style={styles.routeLine} />
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, { backgroundColor: '#EF4444' }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{to}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.primaryBtn} onPress={primary.onPress} activeOpacity={0.85}>
-          <Ionicons name={primary.icon} size={20} color="#000" />
-          <Text style={styles.primaryText}>{primary.label}</Text>
-        </TouchableOpacity>
-      </View>
+      )}
     </View>
   );
 }
@@ -186,10 +645,48 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 16, right: 16, flexDirection: 'row',
     alignItems: 'center', justifyContent: 'space-between',
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sosBtn: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
     borderWidth: 1, borderColor: '#3F1F22', alignItems: 'center', justifyContent: 'center',
   },
+  muteBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#131316',
+    borderWidth: 1, borderColor: '#3F3F1A', alignItems: 'center', justifyContent: 'center',
+  },
+  muteBtnOff: { borderColor: '#27272A' },
+  riderChipTop: {
+    width: 46, height: 46, borderRadius: 23, backgroundColor: '#FFD000',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+  },
+  riderChipInitial: { fontSize: 20, fontWeight: '800', color: '#000' },
+  miniBar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderTopLeftRadius: 26, borderTopRightRadius: 26,
+    borderTopWidth: 1, borderColor: '#2A2A2D',
+    paddingHorizontal: 16, paddingTop: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.45, shadowRadius: 20, elevation: 24,
+  },
+  miniPin: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  miniTextWrap: { flex: 1, justifyContent: 'center' },
+  miniLabel: { color: '#8A8A93', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  miniTo: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', marginTop: 2, letterSpacing: -0.3 },
+  miniCall: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#1C1C1F',
+    borderWidth: 1, borderColor: '#3F3F46', alignItems: 'center', justifyContent: 'center',
+  },
+  miniComplete: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 14, height: 44, paddingHorizontal: 13,
+  },
+  miniCompleteText: { fontSize: 15, fontWeight: '800', color: '#000' },
   livePill: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#131316', borderWidth: 1, borderColor: '#27272A',
@@ -197,6 +694,19 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' },
   liveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  // Compact premium ETA card
+  etaCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(19,19,22,0.94)', borderWidth: 1, borderColor: '#2A2A2D',
+    paddingLeft: 8, paddingRight: 16, paddingVertical: 8, borderRadius: 18,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 10,
+  },
+  etaIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  etaBig: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  etaKm: { color: '#A1A1AA', fontSize: 13, fontWeight: '600' },
+  etaSubRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
+  etaSub: { color: '#71717A', fontSize: 11, fontWeight: '600' },
   card: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     backgroundColor: '#131316', borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -229,4 +739,73 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000', borderRadius: 16, height: 56,
   },
   primaryText: { fontSize: 17, fontWeight: '800', color: '#000' },
+  noShowBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 46, borderRadius: 14, borderWidth: 1, borderColor: '#3F1F22',
+  },
+  noShowText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
+
+  // Corners (SOS + rider avatar)
+  corners: {
+    position: 'absolute', left: 16, right: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  // BIG center-top ETA (Stages 2 & 4)
+  bigEta: {
+    position: 'absolute', alignSelf: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(9,9,11,0.82)', borderRadius: 22,
+    borderWidth: 1, borderColor: '#27272A',
+    paddingHorizontal: 26, paddingVertical: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 10,
+  },
+  bigEtaMin: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', letterSpacing: -1, lineHeight: 38 },
+  bigEtaUnit: { color: '#A1A1AA', fontSize: 16, fontWeight: '700' },
+  bigEtaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  bigEtaSub: { color: '#D4D4D8', fontSize: 13, fontWeight: '600' },
+
+  // Stage 3 — arrived
+  arrivedHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  arrivedTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.3 },
+  arrivedSub: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', marginTop: 2 },
+  waitBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#1C1C1F', borderWidth: 1, borderColor: '#3F3F46',
+    borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7,
+  },
+  waitText: { color: '#FFD000', fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  arrivedActions: { flexDirection: 'row', gap: 12 },
+  arrivedAction: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1C1C1F', borderWidth: 1, borderColor: '#3F3F46',
+    borderRadius: 14, height: 52,
+  },
+  arrivedActionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  // Stage 5 — summary
+  summaryCard: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: '#131316', borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    borderTopWidth: 1, borderColor: '#27272A',
+    paddingHorizontal: 22, paddingTop: 10, alignItems: 'center', gap: 8,
+  },
+  summaryHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3F3F46' },
+  summaryCheck: {
+    width: 46, height: 46, borderRadius: 23, marginTop: 2,
+    backgroundColor: 'rgba(34,197,94,0.14)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  summaryTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.4 },
+  summarySub: { color: '#A1A1AA', fontSize: 13, fontWeight: '600', maxWidth: '100%' },
+  fareBox: {
+    width: '100%', backgroundColor: '#1C1C1F', borderRadius: 16, padding: 14, gap: 8,
+    borderWidth: 1, borderColor: '#27272A', marginTop: 2,
+  },
+  fareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fareLabel: { color: '#A1A1AA', fontSize: 14 },
+  fareValue: { color: '#E4E4E7', fontSize: 14, fontWeight: '600' },
+  fareDivider: { height: 1, backgroundColor: '#27272A', marginVertical: 2 },
+  fareTotalLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  fareTotalValue: { color: '#FFD000', fontSize: 18, fontWeight: '900' },
+  rateLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginTop: 4 },
+  stars: { flexDirection: 'row', marginBottom: 6 },
 });

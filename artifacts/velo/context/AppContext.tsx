@@ -4,9 +4,12 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import * as authService from '@/services/auth';
 import * as rideService from '@/services/rides';
 import * as paymentService from '@/services/payments';
+import * as placeService from '@/services/places';
 import * as driverService from '@/services/driver';
 import type { DriverStatus } from '@/services/driver';
 import { registerForPushNotifications } from '@/services/notifications';
+import { geocode } from '@/services/geo';
+import { type NavMarker, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
 export type Role = 'rider' | 'driver';
 
@@ -16,17 +19,26 @@ export interface Ride {
   riderName: string;
   driverId: string | null;
   driverName: string | null;
+  driverPhone?: string | null;
+  riderPhone?: string | null;
+  fromCoord?: { lat: number; lng: number } | null;
+  toCoord?: { lat: number; lng: number } | null;
+  // Rider's live position, streamed while the driver is en route to pickup.
+  riderLoc?: { lat: number; lng: number; at: number } | null;
   from: string;
   to: string;
-  type: 'Standard' | 'Premium' | 'Group';
+  type: 'Standard' | 'Premium' | 'Bossu';
   price: number;
   date: string;
   // requested → accepted (driver assigned) → arrived (at pickup) →
   // in_progress (trip underway) → completed; cancelled from any point.
-  status: 'requested' | 'accepted' | 'arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'requested' | 'accepted' | 'arrived' | 'in_progress' | 'completed' | 'cancelled' | 'expired';
   durationMin: number;
   driverRating: number;
   paymentMethod?: string;
+  // The driver's verified bike, stamped on accept so the rider knows what to
+  // look for (plate + make/model + colour).
+  vehicle?: { plate: string; model: string; color: string } | null;
   // Live driver position, streamed to Firestore during an active trip.
   driverLoc?: { lat: number; lng: number; at: number } | null;
   // Rider's star rating of the completed trip (1–5).
@@ -77,19 +89,27 @@ interface AppContextType {
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
 
-  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => Promise<string>;
+  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => Promise<string>;
   refreshRides: () => Promise<void>;
   cancelRide: (rideId: string) => Promise<void>;
   completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => Promise<void>;
+
+  savedPlaces: placeService.SavedPlace[];
+  addSavedPlace: (label: string, address: string) => Promise<void>;
+  removeSavedPlace: (id: string) => Promise<void>;
 
   addPaymentMethod: (method: Omit<PaymentMethod, 'id'>) => Promise<void>;
   removePaymentMethod: (id: string) => Promise<void>;
   setDefaultPayment: (id: string) => Promise<void>;
   getDefaultPayment: () => PaymentMethod | null;
   topUpWallet: (amount: number, methodId: string) => Promise<void>;
+  refreshWallet: () => Promise<void>;
 
   refreshDriverStatus: () => Promise<void>;
   setOnline: (online: boolean) => Promise<void>;
+
+  navMarker: NavMarker;
+  setNavMarker: (marker: NavMarker) => void;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -101,15 +121,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isOnboarded, setIsOnboarded] = useState(false);
+  const [onboardChecked, setOnboardChecked] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string } | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
+  const [savedPlaces, setSavedPlaces] = useState<placeService.SavedPlace[]>([]);
+  const [navMarker, setNavMarkerState] = useState<NavMarker>(DEFAULT_NAV_MARKER);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_KEY).then((v) => { if (v) setIsOnboarded(true); });
+    AsyncStorage.getItem('velo_nav_marker').then((v) => {
+      if (v) { try { setNavMarkerState(JSON.parse(v)); } catch {} }
+    });
+  }, []);
+
+  const setNavMarker = useCallback((m: NavMarker) => {
+    setNavMarkerState(m);
+    AsyncStorage.setItem('velo_nav_marker', JSON.stringify(m)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDING_KEY)
+      .then((v) => { if (v) setIsOnboarded(true); })
+      .finally(() => setOnboardChecked(true));
   }, []);
 
   const loadUserData = useCallback(async (uid: string, role: Role) => {
@@ -120,6 +156,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(rideHistory);
     setPaymentMethods(methods);
     paymentService.getTransactions(uid).then(setWalletTransactions);
+    placeService.getPlaces(uid).then(setSavedPlaces).catch(() => setSavedPlaces([]));
     if (role === 'driver') {
       driverService.getDriverStatus(uid).then(setDriverStatus);
     }
@@ -149,6 +186,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPaymentMethods([]);
         setWalletTransactions([]);
         setDriverStatus(null);
+        setSavedPlaces([]);
       }
       // After the FIRST callback, auth is initialized — even if it's null
       if (firstCallback) {
@@ -200,9 +238,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(await rideService.getRideHistory(firebaseUser.uid, 'rider'));
   }, [firebaseUser]);
 
-  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => {
+  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => {
     if (!firebaseUser || !profile) throw new Error('Not signed in');
-    return rideService.createRide({ ...input, riderId: firebaseUser.uid, riderName: profile.name });
+    // Geocode the typed addresses so the driver's map shows the real pickup +
+    // destination (falls back to null → default coords if lookup fails).
+    const [fromLL, toLL] = await Promise.all([geocode(input.from), geocode(input.to)]);
+    return rideService.createRide({
+      ...input,
+      riderId: firebaseUser.uid,
+      riderName: profile.name,
+      riderPhone: profile.phone,
+      fromCoord: fromLL ? { lat: fromLL[1], lng: fromLL[0] } : null,
+      toCoord: toLL ? { lat: toLL[1], lng: toLL[0] } : null,
+    });
   }, [firebaseUser, profile]);
 
   const cancelRide = useCallback(async (rideId: string) => {
@@ -237,6 +285,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return paymentMethods.find((m) => m.isDefault) ?? paymentMethods[0] ?? null;
   }, [paymentMethods]);
 
+  const addSavedPlace = useCallback(async (label: string, address: string) => {
+    if (!firebaseUser) return;
+    await placeService.addPlace(firebaseUser.uid, label, address);
+    setSavedPlaces(await placeService.getPlaces(firebaseUser.uid));
+  }, [firebaseUser]);
+
+  const removeSavedPlace = useCallback(async (id: string) => {
+    if (!firebaseUser) return;
+    await placeService.removePlace(firebaseUser.uid, id);
+    setSavedPlaces((prev) => prev.filter((p) => p.id !== id));
+  }, [firebaseUser]);
+
   const topUpWallet = useCallback(async (amount: number, methodId: string) => {
     if (!firebaseUser) return;
     const method = paymentMethods.find((m) => m.id === methodId);
@@ -245,6 +305,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProfile(p);
     setWalletTransactions(await paymentService.getTransactions(firebaseUser.uid));
   }, [firebaseUser, paymentMethods]);
+
+  // Re-reads wallet balance + transactions after a server-side credit
+  // (e.g. a Paystack top-up that was applied by the Cloud Function).
+  const refreshWallet = useCallback(async () => {
+    if (!firebaseUser) return;
+    setProfile(await authService.getUserProfile(firebaseUser.uid));
+    setWalletTransactions(await paymentService.getTransactions(firebaseUser.uid));
+  }, [firebaseUser]);
 
   const refreshDriverStatus = useCallback(async () => {
     if (!firebaseUser) return;
@@ -262,7 +330,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [firebaseUser]);
 
   const value = useMemo(() => ({
-    isLoading,
+    // Stay "loading" until BOTH Firebase auth AND the persisted onboarding flag
+    // have been checked — otherwise index.tsx can redirect an already-onboarded
+    // user back to the welcome flow during the brief window before the flag load
+    // resolves.
+    isLoading: isLoading || !onboardChecked,
     authInitialized,
     isOnboarded,
     isAuthenticated: !!firebaseUser,
@@ -282,18 +354,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshRides,
     cancelRide,
     completeRide,
+    savedPlaces,
+    addSavedPlace,
+    removeSavedPlace,
     addPaymentMethod,
     removePaymentMethod,
     setDefaultPayment,
     getDefaultPayment,
     topUpWallet,
+    refreshWallet,
     refreshDriverStatus,
     setOnline,
+    navMarker,
+    setNavMarker,
   }), [
-    isLoading, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
+    savedPlaces, addSavedPlace, removeSavedPlace,
     completeOnboarding, login, signup, logout, switchRole, requestRide, refreshRides, cancelRide, completeRide,
-    addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet,
-    refreshDriverStatus, setOnline,
+    addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
+    refreshDriverStatus, setOnline, navMarker, setNavMarker,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

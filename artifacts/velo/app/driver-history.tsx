@@ -24,6 +24,7 @@ const STATUS_META: Record<Ride['status'], { label: string; color: string }> = {
   in_progress: { label: 'In progress', color: '#FFD000' },
   completed: { label: 'Completed', color: '#22C55E' },
   cancelled: { label: 'Cancelled', color: '#EF4444' },
+  expired: { label: 'Expired', color: '#71717A' },
 };
 
 function HistoryCard({ ride }: { ride: Ride }) {

@@ -77,8 +77,13 @@ export default function SignupScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Back */}
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          {/* Back — return to the previous screen (welcome), or sign-in if there
+              is no history to go back to. */}
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(auth)/login'))}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 

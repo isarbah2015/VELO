@@ -42,8 +42,8 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/logo-v.png",
+          "imageWidth": 168,
           "resizeMode": "contain",
           "backgroundColor": "#09090B"
         }
@@ -53,6 +53,13 @@
         {
           "icon": "./assets/images/notification-icon.png",
           "color": "#FFD000"
+        }
+      ],
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "VELO uses your location to show your position on the map, find nearby drivers, and track trips in real time."
         }
       ]
     ],

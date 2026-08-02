@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, Easing, Image, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, Line, RadialGradient, Rect, Stop } from 'react-native-svg';
+import * as SplashScreen from 'expo-splash-screen';
 
 const { width, height } = Dimensions.get('window');
 
@@ -11,16 +12,17 @@ const { width, height } = Dimensions.get('window');
 export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
   const spin = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
-  const scan = useRef(new Animated.Value(0)).current;
+  const ping = useRef(new Animated.Value(0)).current;
   const wordmark = useRef(new Animated.Value(0)).current;
   const fadeOut = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // 3 full turns with an ease-in-out ramp = accelerate then settle.
+    // Two calm turns over 5s with a gentle ease-out settle — deliberately
+    // slow so the reveal feels premium rather than a fast whirl.
     Animated.timing(spin, {
       toValue: 3,
-      duration: 3000,
-      easing: Easing.inOut(Easing.cubic),
+      duration: 2400,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
 
@@ -31,29 +33,42 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
       ])
     ).start();
 
+    // Radar "ping": a ring that expands out from the core and fades — replaces
+    // the old top-to-bottom scan line for a calmer, more premium motion.
     Animated.loop(
-      Animated.timing(scan, { toValue: 1, duration: 2200, easing: Easing.linear, useNativeDriver: true })
+      Animated.timing(ping, { toValue: 1, duration: 2600, easing: Easing.out(Easing.ease), useNativeDriver: true })
     ).start();
 
-    Animated.timing(wordmark, { toValue: 1, duration: 600, delay: 700, useNativeDriver: true }).start();
+    Animated.timing(wordmark, { toValue: 1, duration: 500, delay: 500, useNativeDriver: true }).start();
 
     const t = setTimeout(() => {
-      Animated.timing(fadeOut, { toValue: 0, duration: 400, useNativeDriver: true }).start(({ finished }) => {
+      Animated.timing(fadeOut, { toValue: 0, duration: 350, useNativeDriver: true }).start(({ finished }) => {
         if (finished) onDone();
       });
-    }, 3400);
+    }, 2600);
     return () => clearTimeout(t);
   }, []);
 
-  const rotateY = spin.interpolate({ inputRange: [0, 3], outputRange: ['0deg', '1080deg'] });
+  // 2 full turns (720°) instead of 3 — a noticeably slower, calmer spin.
+  const rotateY = spin.interpolate({ inputRange: [0, 3], outputRange: ['0deg', '720deg'] });
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] });
   const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.15] });
-  const scanY = scan.interpolate({ inputRange: [0, 1], outputRange: [-height * 0.4, height * 0.4] });
+  // Two staggered rings expanding + fading from the centre.
+  const pingScale = ping.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1.6] });
+  const pingOpacity = ping.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.55, 0] });
+  const ping2Scale = ping.interpolate({ inputRange: [0, 1], outputRange: [0.1, 1.1] });
+  const ping2Opacity = ping.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.4, 0.25, 0] });
 
   const glowSize = width * 1.1;
+  const ringSize = width * 0.62;
+
+  // Hide the native splash only once this animated splash has painted its first
+  // frame — the native V logo hands directly to the animated V with no blank
+  // frame in between, so the user sees a single continuous splash.
+  const hideNative = () => { SplashScreen.hideAsync().catch(() => {}); };
 
   return (
-    <Animated.View style={[styles.container, { opacity: fadeOut }]}>
+    <Animated.View style={[styles.container, { opacity: fadeOut }]} onLayout={hideNative}>
       {/* Tech backdrop */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Rect width={width} height={height} fill="#09090B" />
@@ -89,8 +104,19 @@ export default function AnimatedSplash({ onDone }: { onDone: () => void }) {
         </Svg>
       </Animated.View>
 
-      {/* sweeping scan line */}
-      <Animated.View style={[styles.scan, { transform: [{ translateY: scanY }] }]} />
+      {/* radar ping — expanding rings from the core */}
+      <Animated.View
+        style={[
+          styles.ring,
+          { width: ringSize, height: ringSize, borderRadius: ringSize / 2, opacity: pingOpacity, transform: [{ scale: pingScale }] },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.ring,
+          { width: ringSize, height: ringSize, borderRadius: ringSize / 2, opacity: ping2Opacity, transform: [{ scale: ping2Scale }] },
+        ]}
+      />
 
       {/* rotating 3D V logo */}
       <View style={styles.center}>
@@ -120,14 +146,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scan: {
+  ring: {
     position: 'absolute',
-    width: width * 0.9,
-    height: 2,
-    backgroundColor: 'rgba(255,208,0,0.25)',
-    shadowColor: '#FFD000',
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,208,0,0.6)',
   },
   center: {
     alignItems: 'center',

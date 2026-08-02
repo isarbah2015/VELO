@@ -1,24 +1,65 @@
 import {
   collection, doc, addDoc, updateDoc, getDocs, query, where, orderBy,
-  onSnapshot, type Unsubscribe, type FieldValue,
+  onSnapshot, runTransaction, type Unsubscribe, type FieldValue,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import type { Ride } from '@/context/AppContext';
 
 const ridesCol = collection(db, 'rides');
 
+// How long an unaccepted request stays live in the driver pool. After this the
+// rider's search screen times out (marks it 'expired') and drivers stop seeing
+// it, so nobody accepts a request the rider has long given up on.
+export const REQUEST_TTL_MS = 5 * 60 * 1000; // 5 min
+
+// A request is still "fresh" if it was created within the TTL. `date` is the
+// ISO creation stamp set by createRide.
+function isFresh(ride: Ride): boolean {
+  const t = Date.parse((ride as { date?: string }).date ?? '');
+  if (!Number.isFinite(t)) return true; // no/invalid stamp → don't hide it
+  return Date.now() - t < REQUEST_TTL_MS;
+}
+
+// Mark an unaccepted request as expired (rider gave up / TTL elapsed). Only
+// flips it when still 'requested' so it can't stomp a ride a driver just
+// accepted in the same instant.
+export async function expireRide(rideId: string): Promise<void> {
+  try {
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'rides', rideId);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      if (snap.data().status !== 'requested') return; // already accepted/cancelled
+      tx.update(ref, { status: 'expired' });
+    });
+  } catch {
+    // best-effort — a failed expire just means the pool filter still hides it
+  }
+}
+
 export async function createRide(input: {
   riderId: string;
   riderName: string;
+  riderPhone?: string;
   from: string;
   to: string;
+  fromCoord?: { lat: number; lng: number } | null;
+  toCoord?: { lat: number; lng: number } | null;
   type: Ride['type'];
   price: number;
   scheduledFor?: string;
+  paymentMethod?: string;
+  promoCode?: string | null;
 }): Promise<string> {
   const ref = await addDoc(ridesCol, {
     ...input,
+    riderPhone: input.riderPhone ?? null,
+    fromCoord: input.fromCoord ?? null,
+    toCoord: input.toCoord ?? null,
     scheduledFor: input.scheduledFor ?? null,
+    paymentMethod: input.paymentMethod ?? 'cash',
+    promoCode: input.promoCode ?? null,
+    settled: false, // set true once the fare is settled (server-side on complete)
     driverId: null,
     driverName: null,
     date: new Date().toISOString(),
@@ -29,10 +70,23 @@ export async function createRide(input: {
   return ref.id;
 }
 
+// The rider streams their own position during pickup so the driver can see
+// exactly where to meet them (mirrors updateDriverLocation the other way).
+export async function updateRiderLocation(rideId: string, lat: number, lng: number) {
+  await updateDoc(doc(db, 'rides', rideId), { riderLoc: { lat, lng, at: Date.now() } });
+}
+
 export function watchRide(rideId: string, callback: (ride: Ride | null) => void): Unsubscribe {
-  return onSnapshot(doc(db, 'rides', rideId), (snap) => {
-    callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Ride) : null);
-  });
+  return onSnapshot(
+    doc(db, 'rides', rideId),
+    (snap) => callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Ride) : null),
+    (err) => {
+      // A dropped listener (offline, permission, or the ride doc gone) must not
+      // surface as an uncaught snapshot-listener error — report null and log.
+      console.warn('[watchRide] listener error:', err.code ?? err.message);
+      callback(null);
+    }
+  );
 }
 
 export async function getRideHistory(uid: string, role: 'rider' | 'driver' = 'rider'): Promise<Ride[]> {
@@ -43,9 +97,15 @@ export async function getRideHistory(uid: string, role: 'rider' | 'driver' = 'ri
 }
 
 // Stream the driver's live position onto the ride doc during an active trip
-// so the rider's tracking screen can follow it in realtime.
+// so the rider's tracking screen can follow it in realtime. Best-effort
+// telemetry — a dropped write (offline, or the ride doc already gone) must
+// never surface as an unhandled rejection, so failures are swallowed.
 export async function updateDriverLocation(rideId: string, lat: number, lng: number) {
-  await updateDoc(doc(db, 'rides', rideId), { driverLoc: { lat, lng, at: Date.now() } });
+  try {
+    await updateDoc(doc(db, 'rides', rideId), { driverLoc: { lat, lng, at: Date.now() } });
+  } catch {
+    // ignore — the next GPS tick will retry
+  }
 }
 
 export async function updateRideStatus(
@@ -62,14 +122,16 @@ export async function updateRideStatus(
 export async function getDriverRequests(): Promise<Ride[]> {
   const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)).filter(isFresh);
 }
 
 // Realtime version of getDriverRequests: an online driver subscribes to the
 // open-request pool so a rider's new booking shows up instantly, no refresh.
 export function watchDriverRequests(callback: (rides: Ride[]) => void): Unsubscribe {
   const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)));
-  });
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)).filter(isFresh)),
+    (err) => { console.warn('[watchDriverRequests] listener error:', err.code ?? err.message); callback([]); }
+  );
 }

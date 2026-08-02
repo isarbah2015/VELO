@@ -16,9 +16,19 @@ export const DOC_FIELDS: { key: DocKey; label: string }[] = [
   { key: 'bikeRight', label: 'Motorcycle — Right' },
 ];
 
+// Structured vehicle details captured alongside the photos, so a rider can be
+// told exactly what to look for ("GR-1234-24, red Bajaj Boxer") and the
+// platform has the plate on record for accountability.
+export interface VehicleInfo {
+  plate: string;
+  model: string; // make/model, e.g. "Bajaj Boxer"
+  color: string;
+}
+
 export interface VerificationData {
   status: VerificationStatus;
   docs?: Partial<Record<DocKey, string>>;
+  vehicle?: VehicleInfo;
   submittedAt?: unknown;
 }
 
@@ -35,11 +45,16 @@ export async function uploadVerificationImage(uid: string, key: DocKey, uri: str
 
 // Persist the uploaded document URLs and flip the driver into "pending"
 // review. An ops team / admin flips this to verified or rejected later.
-export async function submitVerification(uid: string, docs: Record<DocKey, string>) {
+export async function submitVerification(uid: string, docs: Record<DocKey, string>, vehicle: VehicleInfo) {
   await updateDoc(doc(db, 'drivers', uid), {
     verification: {
       status: 'pending' as VerificationStatus,
       docs,
+      vehicle: {
+        plate: vehicle.plate.trim().toUpperCase(),
+        model: vehicle.model.trim(),
+        color: vehicle.color.trim(),
+      },
       submittedAt: serverTimestamp(),
     },
   });

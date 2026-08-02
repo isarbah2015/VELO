@@ -10,12 +10,61 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import { useGoogleSignIn, googleConfigured } from '@/services/googleAuth';
+
+// Isolated so useGoogleSignIn() only runs when Google is configured for this
+// platform — the expo-auth-session Google provider throws at render otherwise.
+function GoogleAuthButton({ onError, onSuccess }: { onError: (m: string) => void; onSuccess: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const { promptAsync, ready } = useGoogleSignIn((err) => {
+    setLoading(false);
+    if (err) {
+      onError(err.message);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onSuccess();
+    }
+  });
+
+  const handleGoogle = async () => {
+    onError('');
+    setLoading(true);
+    try {
+      const res = await promptAsync();
+      if (res?.type !== 'success') setLoading(false); // dismissed → callback won't fire
+    } catch {
+      setLoading(false);
+      onError('Could not open Google sign-in. Try again.');
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      style={[styles.socialBtn, (loading || !ready) && { opacity: 0.6 }]}
+      onPress={handleGoogle}
+      disabled={loading || !ready}
+      activeOpacity={0.85}
+    >
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+          <Text style={styles.socialBtnText}>Continue with Google</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+}
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -27,6 +76,23 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Password recovery. VELO accounts are phone-based and use a synthetic
+  // (non-deliverable) auth email, so a standard reset-email link can't reach
+  // the rider. Until SMS OTP recovery is wired, route them to support — an
+  // honest path rather than a fake "reset email sent" confirmation.
+  const handleForgotPassword = () => {
+    Haptics.selectionAsync();
+    Alert.alert(
+      'Reset your password',
+      'VELO accounts are secured with your phone number. To reset your password, contact our support team and we\'ll verify your identity and help you back in.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'WhatsApp support', onPress: () => Linking.openURL('https://wa.me/233200000000').catch(() => {}) },
+        { text: 'Call support', onPress: () => Linking.openURL('tel:+233200000000').catch(() => {}) },
+      ]
+    );
+  };
 
   const handleLogin = async () => {
     setError('');
@@ -133,7 +199,7 @@ export default function LoginScreen() {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <TouchableOpacity style={styles.forgotLink}>
+            <TouchableOpacity style={styles.forgotLink} onPress={handleForgotPassword}>
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
 
@@ -167,11 +233,16 @@ export default function LoginScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            {/* Social */}
-            <TouchableOpacity style={styles.socialBtn}>
-              <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-              <Text style={styles.socialBtnText}>Continue with Google</Text>
-            </TouchableOpacity>
+            {/* Social — only mounts the Google hook when configured for this
+                platform, otherwise the provider throws at render. */}
+            {googleConfigured() ? (
+              <GoogleAuthButton onError={setError} onSuccess={() => router.replace('/')} />
+            ) : (
+              <View style={[styles.socialBtn, { opacity: 0.5 }]}>
+                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+                <Text style={styles.socialBtnText}>Google sign-in coming soon</Text>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
