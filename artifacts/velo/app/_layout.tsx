@@ -46,16 +46,33 @@ function RootLayoutNav() {
   // pushes carry { rideId, type } — riders land on live tracking, a driver's
   // new-request push opens their dashboard.
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; rideId?: string };
+    const route = (data?: { type?: string; rideId?: string }) => {
       if (!data) return;
       if (data.type === 'request') {
         router.push('/(driver-tabs)');
+      } else if (data.type === 'expired') {
+        // No trip to track — send the rider home to rebook.
+        router.push('/(tabs)');
       } else if (data.rideId) {
         router.push({ pathname: '/tracking', params: { rideId: data.rideId } });
       }
+    };
+
+    // Warm case: a tap while the app is already running.
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      route(response.notification.request.content.data as { type?: string; rideId?: string });
     });
-    return () => sub.remove();
+
+    // Cold-start case: the app was killed and launched *by* tapping the
+    // notification. That response isn't delivered to the listener above — it's
+    // only available here, so without this the deep-link is silently dropped.
+    let cancelled = false;
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (cancelled || !response) return;
+      route(response.notification.request.content.data as { type?: string; rideId?: string });
+    });
+
+    return () => { cancelled = true; sub.remove(); };
   }, [router]);
 
   return (

@@ -80,6 +80,11 @@ exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) =
       await send([...riderTokens, ...driverTokens], 'Ride cancelled', 'This ride was cancelled.', { rideId, type: 'cancelled' });
       break;
     }
+    case 'expired':
+      // No driver accepted before the request timed out — let the rider know so
+      // they can rebook (covers the case where their app was backgrounded).
+      await send(riderTokens, 'No drivers available', 'No driver picked up your request. Tap to try again.', { rideId, type: 'expired' });
+      break;
     default:
       break;
   }
