@@ -31,7 +31,7 @@ export interface Ride {
   date: string;
   // requested → accepted (driver assigned) → arrived (at pickup) →
   // in_progress (trip underway) → completed; cancelled from any point.
-  status: 'requested' | 'accepted' | 'arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'requested' | 'accepted' | 'arrived' | 'in_progress' | 'completed' | 'cancelled' | 'expired';
   durationMin: number;
   driverRating: number;
   paymentMethod?: string;

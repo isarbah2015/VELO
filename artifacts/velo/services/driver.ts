@@ -24,8 +24,41 @@ export async function getDriverStatus(uid: string): Promise<DriverStatus | null>
   return { totalRides: 0, ...data } as DriverStatus; // default for older docs
 }
 
+// Thrown when a driver taps Accept a beat after someone else already claimed
+// the ride (or the rider cancelled). The UI catches this to show a friendly
+// "just taken" message instead of silently double-assigning.
+export class RideUnavailableError extends Error {
+  constructor(public reason: 'taken' | 'gone' | 'cancelled') {
+    super(reason);
+    this.name = 'RideUnavailableError';
+  }
+}
+
+// Accept-race guard: two online drivers can tap Accept on the same open request
+// within milliseconds. A blind write would let the last writer win and leave
+// both drivers thinking they got the ride. Claim it inside a transaction that
+// only succeeds when the ride is still unassigned — the loser gets a
+// RideUnavailableError and the request stays with whoever won.
 export async function acceptRide(rideId: string, driverId: string, driverName: string) {
-  await updateRideStatus(rideId, 'accepted', { driverId, driverName });
+  const ref = doc(db, 'rides', rideId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new RideUnavailableError('gone');
+    const data = snap.data();
+    if (data.status === 'cancelled') throw new RideUnavailableError('cancelled');
+    // Already claimed by another driver (status advanced past 'requested', or a
+    // driverId is already set) — this driver lost the race.
+    if (data.driverId && data.driverId !== driverId) throw new RideUnavailableError('taken');
+    if (data.status !== 'requested' && data.status !== 'accepted') {
+      throw new RideUnavailableError('taken');
+    }
+    tx.update(ref, {
+      status: 'accepted',
+      driverId,
+      driverName,
+      acceptedAt: serverTimestamp(),
+    });
+  });
 }
 
 // Declining leaves the ride unassigned (driverId stays null) so another

@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
-import { watchRide } from '@/services/rides';
+import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
@@ -104,6 +104,23 @@ export default function HomeScreen() {
   const tabBarHeight = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
 
   useEffect(() => () => unwatchRef.current?.(), []);
+
+  // Search timeout: if no driver accepts within the request TTL, stop searching,
+  // expire the request (so no driver can still grab a ride the rider gave up on),
+  // and let the rider try again — instead of an endless "Finding your rider…".
+  useEffect(() => {
+    if (bookingState !== 'searching' || !activeRideId) return;
+    const t = setTimeout(() => {
+      unwatchRef.current?.();
+      unwatchRef.current = null;
+      expireRide(activeRideId);
+      setActiveRideId(null);
+      setBookingState('idle');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert('No drivers available', 'No driver picked up your request. Please try again in a moment.');
+    }, REQUEST_TTL_MS);
+    return () => clearTimeout(t);
+  }, [bookingState, activeRideId]);
 
   const handleBookNow = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

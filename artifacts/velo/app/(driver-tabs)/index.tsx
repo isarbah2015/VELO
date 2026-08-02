@@ -16,10 +16,12 @@ import { useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
-import { acceptRide, declineRide } from '@/services/driver';
+import { acceptRide, declineRide, RideUnavailableError } from '@/services/driver';
 import { notifyLocal } from '@/services/notifications';
 import { loadActiveTrip, clearActiveTrip } from '@/services/tripSession';
+import { distanceKm } from '@/services/geo';
 import { Alert } from 'react-native';
+import * as Location from 'expo-location';
 import { tierProgress, tierCanServe } from '@/services/tiers';
 import RideRequestOverlay from '@/components/RideRequestOverlay';
 
@@ -42,6 +44,30 @@ export default function DriverHomeScreen() {
   const tp = tierProgress(driverStatus?.totalRides ?? 0, driverStatus?.rating ?? 5);
   const router = useRouter();
   const seenIds = useRef<Set<string>>(new Set());
+  // Driver's current position, for nearest-request dispatch ordering.
+  const [driverLL, setDriverLL] = useState<[number, number] | null>(null);
+  const [accepting, setAccepting] = useState(false);
+
+  // Track the driver's position while online so incoming requests can be
+  // ordered nearest-first. Best-effort — no GPS just falls back to newest-first.
+  useEffect(() => {
+    if (!online) return;
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, distanceInterval: 50, timeInterval: 10000 },
+          (loc) => setDriverLL([loc.coords.longitude, loc.coords.latitude])
+        );
+      } catch {
+        // no GPS — nearest ordering just won't apply
+      }
+    })();
+    return () => { cancelled = true; sub?.remove(); };
+  }, [online]);
 
   // Keep driver stats fresh whenever this screen mounts.
   useEffect(() => { refreshDriverStatus(); }, [refreshDriverStatus]);
@@ -116,15 +142,24 @@ export default function DriverHomeScreen() {
   };
 
   const respond = async (ride: Ride, accepted: boolean) => {
-    if (!user) return;
-    Haptics.notificationAsync(accepted ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning);
-    setRequests((prev) => prev.filter((r) => r.id !== ride.id));
-    if (accepted) {
+    if (!user || accepting) return;
+    if (!accepted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setRequests((prev) => prev.filter((r) => r.id !== ride.id));
+      await declineRide(ride.id);
+      return;
+    }
+    // Accept path: claim the ride first (transaction), and only navigate if we
+    // actually won it. If another driver got there first, keep this driver in
+    // the pool and tell them, instead of pushing into a trip they don't own.
+    setAccepting(true);
+    try {
       await acceptRide(ride.id, user.uid, user.name);
-      // The rider's "Driver found" push now fires server-side from the
-      // onRideStatusChange Cloud Function (trusted), so we don't push here.
-      // Go to the live trip screen — the fare is settled there on completion,
-      // not on accept, so earnings match real finished trips.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRequests((prev) => prev.filter((r) => r.id !== ride.id));
+      // The rider's "Driver found" push fires server-side from the
+      // onRideStatusChange Cloud Function (trusted). Go to the live trip
+      // screen — the fare settles there on completion, not on accept.
       router.push({
         pathname: '/driver-trip',
         params: {
@@ -140,14 +175,32 @@ export default function DriverHomeScreen() {
           toLng: String(ride.toCoord?.lng ?? ''),
         },
       });
-    } else {
-      await declineRide(ride.id);
+    } catch (e) {
+      // Lost the accept race (or the rider cancelled/expired) — drop it from the
+      // pool and let the driver pick up the next one.
+      setRequests((prev) => prev.filter((r) => r.id !== ride.id));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      const reason =
+        e instanceof RideUnavailableError && e.reason === 'cancelled'
+          ? 'The rider cancelled this request.'
+          : 'Another driver just took this ride.';
+      Alert.alert('Ride unavailable', reason);
+    } finally {
+      setAccepting(false);
     }
   };
 
-  // Only surface requests this driver's tier is allowed to serve (a Standard
-  // driver won't get Premium/Bossu rides until promoted).
-  const incoming = online ? requests.find((r) => tierCanServe(tp.tier, r.type)) : undefined;
+  // Surface only requests this driver's tier can serve (a Standard driver won't
+  // get Premium/Bossu rides until promoted), ordered nearest-first when we have
+  // the driver's GPS so the closest rider is offered before farther ones.
+  const eligible = online ? requests.filter((r) => tierCanServe(tp.tier, r.type)) : [];
+  const incoming = driverLL
+    ? [...eligible].sort((a, b) => {
+        const da = a.fromCoord ? distanceKm(driverLL, [a.fromCoord.lng, a.fromCoord.lat]) : Infinity;
+        const db = b.fromCoord ? distanceKm(driverLL, [b.fromCoord.lng, b.fromCoord.lat]) : Infinity;
+        return da - db;
+      })[0]
+    : eligible[0];
 
   return (
     <View style={styles.container}>

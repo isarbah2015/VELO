@@ -1,11 +1,41 @@
 import {
   collection, doc, addDoc, updateDoc, getDocs, query, where, orderBy,
-  onSnapshot, type Unsubscribe, type FieldValue,
+  onSnapshot, runTransaction, type Unsubscribe, type FieldValue,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import type { Ride } from '@/context/AppContext';
 
 const ridesCol = collection(db, 'rides');
+
+// How long an unaccepted request stays live in the driver pool. After this the
+// rider's search screen times out (marks it 'expired') and drivers stop seeing
+// it, so nobody accepts a request the rider has long given up on.
+export const REQUEST_TTL_MS = 5 * 60 * 1000; // 5 min
+
+// A request is still "fresh" if it was created within the TTL. `date` is the
+// ISO creation stamp set by createRide.
+function isFresh(ride: Ride): boolean {
+  const t = Date.parse((ride as { date?: string }).date ?? '');
+  if (!Number.isFinite(t)) return true; // no/invalid stamp → don't hide it
+  return Date.now() - t < REQUEST_TTL_MS;
+}
+
+// Mark an unaccepted request as expired (rider gave up / TTL elapsed). Only
+// flips it when still 'requested' so it can't stomp a ride a driver just
+// accepted in the same instant.
+export async function expireRide(rideId: string): Promise<void> {
+  try {
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'rides', rideId);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      if (snap.data().status !== 'requested') return; // already accepted/cancelled
+      tx.update(ref, { status: 'expired' });
+    });
+  } catch {
+    // best-effort — a failed expire just means the pool filter still hides it
+  }
+}
 
 export async function createRide(input: {
   riderId: string;
@@ -87,7 +117,7 @@ export async function updateRideStatus(
 export async function getDriverRequests(): Promise<Ride[]> {
   const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)).filter(isFresh);
 }
 
 // Realtime version of getDriverRequests: an online driver subscribes to the
@@ -96,7 +126,7 @@ export function watchDriverRequests(callback: (rides: Ride[]) => void): Unsubscr
   const q = query(ridesCol, where('status', '==', 'requested'), orderBy('date', 'desc'));
   return onSnapshot(
     q,
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride))),
+    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Ride)).filter(isFresh)),
     (err) => { console.warn('[watchDriverRequests] listener error:', err.code ?? err.message); callback([]); }
   );
 }
