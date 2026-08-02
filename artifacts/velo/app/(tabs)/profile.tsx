@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
 import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
+import { riderTierProgress } from '@/services/riderTiers';
 
 interface MenuItem {
   id: string;
@@ -63,7 +64,6 @@ export default function ProfileScreen() {
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
   const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
-  const [switching, setSwitching] = useState(false);
 
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const totalSpent = rides.reduce((sum, r) => (r.status === 'completed' ? sum + r.price : sum), 0);
@@ -97,13 +97,13 @@ export default function ProfileScreen() {
   };
 
   const handleSwitchRole = (next: Role) => {
-    if (next === role || switching) return;
+    if (next === role) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // switchRole updates the role in context synchronously (optimistic) and
-    // syncs to Firestore in the background, so navigate immediately instead
-    // of waiting on the network round-trip — the tab set swaps instantly.
-    switchRole(next).catch(() => {});
+    // Navigate first so the tab set swaps on this same frame — then persist the
+    // role in the background. switchRole also flips the role in context
+    // optimistically, so nothing waits on the Firestore round-trip.
     router.replace(next === 'driver' ? '/(driver-tabs)' : '/(tabs)');
+    switchRole(next).catch(() => {});
   };
 
   return (
@@ -183,6 +183,37 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        {/* Rider loyalty tier — climbs with completed trips, unlocks fare
+            discounts. Riders only (drivers have their own tier ladder). */}
+        {!isDriver && (() => {
+          const rt = riderTierProgress(completedRides);
+          return (
+            <View style={styles.loyaltyCard}>
+              <View style={styles.loyaltyHeader}>
+                <Text style={styles.loyaltyTier}>{rt.current.emoji} {rt.current.label} member</Text>
+                {rt.current.discountPct > 0 && (
+                  <View style={styles.loyaltyBadge}>
+                    <Text style={styles.loyaltyBadgeText}>{Math.round(rt.current.discountPct * 100)}% off fares</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.loyaltyPerk}>{rt.current.perk}</Text>
+              {rt.next ? (
+                <>
+                  <View style={styles.loyaltyBarTrack}>
+                    <View style={[styles.loyaltyBarFill, { width: `${Math.round(rt.progress * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.loyaltyNext}>
+                    {rt.ridesToNext} more {rt.ridesToNext === 1 ? 'ride' : 'rides'} to {rt.next.emoji} {rt.next.label}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.loyaltyNext}>You&apos;ve reached the top tier 🎉</Text>
+              )}
+            </View>
+          );
+        })()}
+
         {/* Role switcher */}
         <View style={styles.roleSwitchCard}>
           <Text style={styles.roleSwitchTitle}>Account Mode</Text>
@@ -192,7 +223,6 @@ export default function ProfileScreen() {
                 key={r}
                 style={[styles.roleSwitchChip, role === r && styles.roleSwitchChipActive]}
                 onPress={() => handleSwitchRole(r)}
-                disabled={switching}
                 activeOpacity={0.85}
               >
                 <Ionicons
@@ -485,6 +515,39 @@ const styles = StyleSheet.create({
     borderColor: '#27272A',
     gap: 10,
   },
+  loyaltyCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#1C1C1F',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2A2620',
+    gap: 8,
+  },
+  loyaltyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  loyaltyTier: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  loyaltyBadge: {
+    backgroundColor: 'rgba(255,208,0,0.14)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  loyaltyBadgeText: { color: '#FFD000', fontSize: 12, fontWeight: '700' },
+  loyaltyPerk: { color: '#A1A1AA', fontSize: 13, lineHeight: 18 },
+  loyaltyBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#27272A',
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  loyaltyBarFill: { height: '100%', borderRadius: 3, backgroundColor: '#FFD000' },
+  loyaltyNext: { color: '#71717A', fontSize: 12 },
   roleSwitchTitle: {
     fontSize: 12,
     color: '#52525B',

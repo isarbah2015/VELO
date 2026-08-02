@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import LiveMap from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
+import { applyRiderDiscount } from '@/services/riderTiers';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -90,7 +91,10 @@ type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide, walletBalance } = useApp();
+  const { user, requestRide, cancelRide, walletBalance, rides } = useApp();
+  // Rider loyalty: completed trips drive the tier + its standing fare discount.
+  const completedRides = rides.filter((r) => r.status === 'completed').length;
+  const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
   const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
@@ -134,7 +138,7 @@ export default function HomeScreen() {
       from: pickup,
       to: destination,
       type: rideTypeFor(selectedBike.id),
-      price: fareFor(selectedBike.id),
+      price: effFare(selectedBike.id),
       paymentMethod: payMethod,
     };
 
@@ -182,7 +186,7 @@ export default function HomeScreen() {
         from: pickup,
         to: destination,
         type: rideTypeFor(selectedBike.id),
-        price: String(fareFor(selectedBike.id)),
+        price: String(effFare(selectedBike.id)),
         driverName: matchedRide?.driverName ?? 'Your VELO driver',
         driverRating: String(matchedRide?.driverRating ?? '4.8'),
         driverPhone: matchedRide?.driverPhone ?? '',
@@ -241,7 +245,10 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.bikeName}>{selectedBike.name}</Text>
             <View style={styles.fareRow}>
-              <Text style={styles.farePrice}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+              <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
+              {completedRides >= 10 && (
+                <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+              )}
               <Text style={styles.fareSub}> est. fare</Text>
             </View>
             <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
@@ -295,6 +302,7 @@ export default function HomeScreen() {
                 pickup={pickup}
                 destination={destination}
                 walletBalance={walletBalance}
+                completedRides={completedRides}
                 onConfirm={handleConfirmRide}
                 onCancel={() => setBookingState('idle')}
               />
@@ -343,6 +351,7 @@ function ConfirmView({
   pickup,
   destination,
   walletBalance,
+  completedRides,
   onConfirm,
   onCancel,
 }: {
@@ -350,12 +359,15 @@ function ConfirmView({
   pickup: string;
   destination: string;
   walletBalance: number;
+  completedRides: number;
   onConfirm: (scheduledFor?: string, payMethod?: PayMethod) => void;
   onCancel: () => void;
 }) {
   const [scheduleMin, setScheduleMin] = useState(0);
   const scheduled = scheduleMin > 0;
-  const fare = fareFor(bike.id);
+  const baseFare = fareFor(bike.id);
+  const fare = applyRiderDiscount(baseFare, completedRides); // loyalty-adjusted
+  const saved = Math.round((baseFare - fare) * 100) / 100;
   const walletOk = walletBalance >= fare;
   // Default to wallet when it covers the fare, otherwise cash.
   const [payMethod, setPayMethod] = useState<PayMethod>(walletOk ? 'wallet' : 'cash');
@@ -404,8 +416,17 @@ function ConfirmView({
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Est. Fare</Text>
-          <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵{fareFor(bike.id).toFixed(2)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {saved > 0 && <Text style={styles.fareStrike}>₵{baseFare.toFixed(2)}</Text>}
+            <Text style={[styles.confirmDetailValue, { color: '#FFD000' }]}>₵{fare.toFixed(2)}</Text>
+          </View>
         </View>
+        {saved > 0 && (
+          <View style={styles.confirmDetailRow}>
+            <Text style={styles.confirmDetailLabel}>Loyalty discount</Text>
+            <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>−₵{saved.toFixed(2)}</Text>
+          </View>
+        )}
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Driver ETA</Text>
           <Text style={styles.confirmDetailValue}>{bike.eta}</Text>
@@ -812,6 +833,7 @@ const styles = StyleSheet.create({
   },
   fareRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
   farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
+  fareStrike: { fontSize: 14, color: '#71717A', fontWeight: '600', textDecorationLine: 'line-through' },
   fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
   fareFormula: { fontSize: 11, color: '#71717A', marginTop: 2 },
   vehicleIcons: { flexDirection: 'row', gap: 8 },
