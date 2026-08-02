@@ -34,6 +34,50 @@ async function send(tokens, title, body, data = {}) {
   }
 }
 
+// Settle the fare when a ride completes. Runs on the trusted server so the
+// driver's device is never allowed to touch the rider's wallet, and is
+// idempotent: the ride's `settled` flag is flipped inside the same transaction
+// that moves the money, so a duplicate status event can't double-charge.
+//
+//   - wallet: deduct the fare from the rider's walletBalance and log a
+//     'deduction' transaction. (Balance can go slightly negative if the rider
+//     spent their top-up between booking and completion — the debt is real and
+//     recovered on their next top-up, rather than letting the ride go unpaid.)
+//   - cash / momo: nothing to move — the driver collects in person — but still
+//     mark settled + log the record so the trip shows a payment on both sides.
+async function settleRide(rideId) {
+  try {
+    const rideRef = db.doc(`rides/${rideId}`);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(rideRef);
+      if (!snap.exists) return;
+      const ride = snap.data();
+      if (ride.settled) return; // already settled — idempotent guard
+      const fare = Number(ride.price) || 0;
+      const method = ride.paymentMethod || 'cash';
+      const riderId = ride.riderId;
+
+      if (method === 'wallet' && riderId && fare > 0) {
+        const userRef = db.doc(`users/${riderId}`);
+        const userSnap = await tx.get(userRef);
+        const balance = Number(userSnap.get('walletBalance')) || 0;
+        tx.update(userRef, { walletBalance: balance - fare });
+        const txnRef = db.collection(`users/${riderId}/transactions`).doc();
+        tx.set(txnRef, {
+          type: 'deduction',
+          amount: fare,
+          description: `Ride · ${ride.from || 'Pickup'} → ${ride.to || 'Destination'}`,
+          rideId,
+          date: new Date().toISOString(),
+        });
+      }
+      tx.update(rideRef, { settled: true, settledAt: new Date().toISOString(), paidWith: method });
+    });
+  } catch (err) {
+    console.error('settleRide failed', rideId, err);
+  }
+}
+
 // A rider just booked → notify every online driver so they can grab it.
 // This is the trusted, server-side replacement for the client fan-out.
 exports.onRideRequested = onDocumentCreated('rides/{rideId}', async (event) => {
@@ -72,6 +116,7 @@ exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) =
       await send(riderTokens, 'Trip started', 'Enjoy the ride. Stay safe!', { rideId, type: 'in_progress' });
       break;
     case 'completed':
+      await settleRide(rideId);
       await send(riderTokens, 'You have arrived 🎉', 'Thanks for riding with VELO. Rate your trip.', { rideId, type: 'completed' });
       break;
     case 'cancelled': {

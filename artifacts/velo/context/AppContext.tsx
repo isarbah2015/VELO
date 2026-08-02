@@ -85,7 +85,7 @@ interface AppContextType {
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
 
-  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => Promise<string>;
+  requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string }) => Promise<string>;
   refreshRides: () => Promise<void>;
   cancelRide: (rideId: string) => Promise<void>;
   completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => Promise<void>;
@@ -227,7 +227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRides(await rideService.getRideHistory(firebaseUser.uid, 'rider'));
   }, [firebaseUser]);
 
-  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string }) => {
+  const requestRide = useCallback(async (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string }) => {
     if (!firebaseUser || !profile) throw new Error('Not signed in');
     // Geocode the typed addresses so the driver's map shows the real pickup +
     // destination (falls back to null → default coords if lookup fails).

@@ -86,10 +86,11 @@ const estimateFare = (type: Ride['type']): number =>
 const fareFor = (id: string): number => estimateFare(rideTypeFor(id));
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
+type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide } = useApp();
+  const { user, requestRide, cancelRide, walletBalance } = useApp();
   const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
@@ -127,13 +128,14 @@ export default function HomeScreen() {
     setBookingState('confirm');
   };
 
-  const handleConfirmRide = async (scheduledFor?: string) => {
+  const handleConfirmRide = async (scheduledFor?: string, payMethod: PayMethod = 'cash') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     const base = {
       from: pickup,
       to: destination,
       type: rideTypeFor(selectedBike.id),
       price: fareFor(selectedBike.id),
+      paymentMethod: payMethod,
     };
 
     // Scheduled rides are created for later — no live search now. They land
@@ -292,6 +294,7 @@ export default function HomeScreen() {
                 bike={selectedBike}
                 pickup={pickup}
                 destination={destination}
+                walletBalance={walletBalance}
                 onConfirm={handleConfirmRide}
                 onCancel={() => setBookingState('idle')}
               />
@@ -329,21 +332,33 @@ const SCHEDULE_OPTIONS: { label: string; minutes: number }[] = [
   { label: '+2h', minutes: 120 },
 ];
 
+const PAY_OPTIONS: { id: PayMethod; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'wallet', label: 'Wallet', icon: 'wallet-outline' },
+  { id: 'cash', label: 'Cash', icon: 'cash-outline' },
+  { id: 'momo', label: 'MoMo', icon: 'phone-portrait-outline' },
+];
+
 function ConfirmView({
   bike,
   pickup,
   destination,
+  walletBalance,
   onConfirm,
   onCancel,
 }: {
   bike: typeof BIKES[0];
   pickup: string;
   destination: string;
-  onConfirm: (scheduledFor?: string) => void;
+  walletBalance: number;
+  onConfirm: (scheduledFor?: string, payMethod?: PayMethod) => void;
   onCancel: () => void;
 }) {
   const [scheduleMin, setScheduleMin] = useState(0);
   const scheduled = scheduleMin > 0;
+  const fare = fareFor(bike.id);
+  const walletOk = walletBalance >= fare;
+  // Default to wallet when it covers the fare, otherwise cash.
+  const [payMethod, setPayMethod] = useState<PayMethod>(walletOk ? 'wallet' : 'cash');
 
   return (
     <View style={{ gap: 20 }}>
@@ -395,15 +410,37 @@ function ConfirmView({
           <Text style={styles.confirmDetailLabel}>Driver ETA</Text>
           <Text style={styles.confirmDetailValue}>{bike.eta}</Text>
         </View>
-        <View style={styles.confirmDetailRow}>
-          <Text style={styles.confirmDetailLabel}>Payment</Text>
-          <Text style={styles.confirmDetailValue}>MTN MoMo</Text>
+      </View>
+
+      {/* Payment method — wallet settles automatically on completion; cash/MoMo
+          are collected by the driver in person. */}
+      <View style={{ gap: 10 }}>
+        <Text style={styles.scheduleLabel}>Payment</Text>
+        <View style={styles.scheduleRow}>
+          {PAY_OPTIONS.map((o) => {
+            const active = payMethod === o.id;
+            const disabled = o.id === 'wallet' && !walletOk;
+            return (
+              <TouchableOpacity
+                key={o.id}
+                style={[styles.payChip, active && styles.scheduleChipActive, disabled && styles.payChipDisabled]}
+                onPress={() => { if (disabled) return; Haptics.selectionAsync(); setPayMethod(o.id); }}
+                activeOpacity={disabled ? 1 : 0.85}
+              >
+                <Ionicons name={o.icon} size={16} color={active ? '#FFD000' : disabled ? '#52525B' : '#A1A1AA'} />
+                <Text style={[styles.scheduleChipText, active && styles.scheduleChipTextActive, disabled && { color: '#52525B' }]}>{o.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
+        {payMethod === 'wallet' && (
+          <Text style={styles.payHint}>Balance ₵{walletBalance.toFixed(2)} · ₵{fare.toFixed(2)} deducted on completion</Text>
+        )}
       </View>
 
       <TouchableOpacity
         style={styles.bookNowBtn}
-        onPress={() => onConfirm(scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined)}
+        onPress={() => onConfirm(scheduled ? new Date(Date.now() + scheduleMin * 60000).toISOString() : undefined, payMethod)}
         activeOpacity={0.85}
       >
         <Text style={styles.bookNowText}>{scheduled ? 'Schedule Ride' : 'Confirm Ride'}</Text>
@@ -550,6 +587,25 @@ const styles = StyleSheet.create({
   },
   scheduleChipTextActive: {
     color: '#FFD000',
+  },
+  payChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    backgroundColor: '#18181B',
+  },
+  payChipDisabled: {
+    opacity: 0.5,
+  },
+  payHint: {
+    color: '#71717A',
+    fontSize: 12,
   },
   topBar: {
     position: 'absolute',
