@@ -36,6 +36,9 @@ export interface Ride {
   durationMin: number;
   driverRating: number;
   paymentMethod?: string;
+  // The driver's verified bike, stamped on accept so the rider knows what to
+  // look for (plate + make/model + colour).
+  vehicle?: { plate: string; model: string; color: string } | null;
   // Live driver position, streamed to Firestore during an active trip.
   driverLoc?: { lat: number; lng: number; at: number } | null;
   // Rider's star rating of the completed trip (1–5).

@@ -328,6 +328,7 @@ export default function TrackingScreen() {
             distanceLabel={distanceLabel}
             driverName={driverName}
             driverRating={driverRating}
+            vehicle={ride?.vehicle}
             onCancel={handleCancel}
             onMessage={() => rideId && router.push({ pathname: '/chat', params: { rideId, otherName: driverName } })}
             onCall={() => {
@@ -474,9 +475,10 @@ function TrackingMap({
 }
 
 function ArrivingPanel({
-  etaSeconds, distanceLabel, driverName, driverRating, onCancel, onMessage, onCall, onShare,
+  etaSeconds, distanceLabel, driverName, driverRating, vehicle, onCancel, onMessage, onCall, onShare,
 }: {
   etaSeconds: number; distanceLabel?: string; driverName: string; driverRating: number;
+  vehicle?: { plate: string; model: string; color: string } | null;
   onCancel: () => void; onMessage: () => void; onCall: () => void; onShare: () => void;
 }) {
   return (
@@ -497,6 +499,20 @@ function ArrivingPanel({
           <Text style={styles.etaLabel}>ETA</Text>
         </View>
       </View>
+
+      {/* Vehicle to look for — plate is emphasised, with make/model + colour. */}
+      {vehicle?.plate ? (
+        <View style={styles.vehicleCard}>
+          <Ionicons name="bicycle" size={20} color="#FFD000" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.vehiclePlate}>{vehicle.plate}</Text>
+            <Text style={styles.vehicleDesc}>
+              {[vehicle.color, vehicle.model].filter(Boolean).join(' ')}
+            </Text>
+          </View>
+          <Text style={styles.vehicleHint}>Look for this bike</Text>
+        </View>
+      ) : null}
 
       <View style={styles.statusBar}>
         <View style={[styles.statusStep, styles.statusStepActive]}>
@@ -754,6 +770,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#A1A1AA',
   },
+  vehicleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1C1C1F',
+    borderWidth: 1,
+    borderColor: '#2A2620',
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 12,
+  },
+  vehiclePlate: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  vehicleDesc: { fontSize: 13, color: '#A1A1AA', marginTop: 1 },
+  vehicleHint: { fontSize: 11, color: '#71717A' },
   etaBox: {
     alignItems: 'center',
     backgroundColor: '#1C1C1F',

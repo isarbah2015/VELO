@@ -57,6 +57,7 @@ export class RideUnavailableError extends Error {
 // RideUnavailableError and the request stays with whoever won.
 export async function acceptRide(rideId: string, driverId: string, driverName: string) {
   const ref = doc(db, 'rides', rideId);
+  const driverRef = doc(db, 'drivers', driverId);
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new RideUnavailableError('gone');
@@ -68,10 +69,15 @@ export async function acceptRide(rideId: string, driverId: string, driverName: s
     if (data.status !== 'requested' && data.status !== 'accepted') {
       throw new RideUnavailableError('taken');
     }
+    // Stamp the driver's verified vehicle onto the ride so the rider can be told
+    // exactly which bike + plate to look for (read inside the txn, no extra RTT).
+    const driverSnap = await tx.get(driverRef);
+    const vehicle = driverSnap.get('verification.vehicle') ?? null;
     tx.update(ref, {
       status: 'accepted',
       driverId,
       driverName,
+      vehicle,
       acceptedAt: serverTimestamp(),
     });
   });
