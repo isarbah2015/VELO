@@ -1,5 +1,5 @@
 import {
-  collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, type Unsubscribe,
+  collection, doc, addDoc, updateDoc, query, orderBy, onSnapshot, serverTimestamp, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
@@ -25,6 +25,29 @@ export async function sendMessage(rideId: string, senderId: string, senderName: 
     // serverTimestamp resolves on the local optimistic snapshot.
     clientAt: Date.now(),
   });
+}
+
+// Read receipts. Each side stamps the time it last viewed the chat onto the
+// ride doc (chatReads.{uid}); the other side shows "Seen" on their latest
+// message once that stamp passes the message's time. Kept on the ride doc
+// (not per-message) so it's one cheap write per view, not one per message.
+export async function markChatRead(rideId: string, uid: string) {
+  try {
+    await updateDoc(doc(db, 'rides', rideId), { [`chatReads.${uid}`]: Date.now() });
+  } catch {
+    // best-effort — a missed read stamp only means "Seen" shows a beat late
+  }
+}
+
+export function watchChatReads(
+  rideId: string,
+  callback: (reads: Record<string, number>) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, 'rides', rideId),
+    (snap) => callback((snap.data()?.chatReads as Record<string, number>) ?? {}),
+    (err) => { console.warn('[watchChatReads] listener error:', (err as any).code ?? err.message); callback({}); }
+  );
 }
 
 export function watchMessages(rideId: string, callback: (msgs: ChatMessage[]) => void): Unsubscribe {
