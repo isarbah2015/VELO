@@ -18,6 +18,8 @@ import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide } from '@/services/driver';
 import { notifyLocal } from '@/services/notifications';
+import { loadActiveTrip, clearActiveTrip } from '@/services/tripSession';
+import { Alert } from 'react-native';
 import { tierProgress, tierCanServe } from '@/services/tiers';
 import RideRequestOverlay from '@/components/RideRequestOverlay';
 
@@ -43,6 +45,43 @@ export default function DriverHomeScreen() {
 
   // Keep driver stats fresh whenever this screen mounts.
   useEffect(() => { refreshDriverStatus(); }, [refreshDriverStatus]);
+
+  // App-kill recovery: if a live trip was interrupted (app killed mid-ride),
+  // offer to jump straight back into it on next launch. Runs once per mount.
+  const resumeChecked = useRef(false);
+  useEffect(() => {
+    if (resumeChecked.current) return;
+    resumeChecked.current = true;
+    loadActiveTrip().then((trip) => {
+      if (!trip) return;
+      Alert.alert(
+        'Resume active trip?',
+        `You have an unfinished trip${trip.to ? ` to ${trip.to}` : ''}. Continue where you left off?`,
+        [
+          { text: 'Discard', style: 'destructive', onPress: () => clearActiveTrip() },
+          {
+            text: 'Resume',
+            onPress: () =>
+              router.push({
+                pathname: '/driver-trip',
+                params: {
+                  rideId: trip.rideId,
+                  riderName: trip.riderName ?? '',
+                  riderPhone: trip.riderPhone ?? '',
+                  from: trip.from ?? '',
+                  to: trip.to ?? '',
+                  price: trip.price ?? '0',
+                  fromLat: trip.fromLat ?? '',
+                  fromLng: trip.fromLng ?? '',
+                  toLat: trip.toLat ?? '',
+                  toLng: trip.toLng ?? '',
+                },
+              }),
+          },
+        ]
+      );
+    });
+  }, [router]);
 
   // Subscribe to the open-request pool in realtime, but only while online —
   // a rider's booking then appears instantly with no manual refresh, and a

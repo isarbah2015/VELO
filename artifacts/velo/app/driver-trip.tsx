@@ -13,6 +13,12 @@ import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/ri
 import { recordCompletedRide } from '@/services/driver';
 import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
 import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
+import {
+  saveActiveTrip,
+  updateActiveTripPhase,
+  clearActiveTrip,
+  showOngoingNotification,
+} from '@/services/tripSession';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
@@ -136,6 +142,44 @@ export default function DriverTripScreen() {
     };
   }, [rideId]);
 
+  // App-kill recovery: mirror the active trip to AsyncStorage on mount so a
+  // relaunch (after the OS kills a backgrounded app, or a crash) can resume the
+  // exact same live trip instead of dropping the passenger. Cleared when the
+  // trip ends (summary/cancel).
+  useEffect(() => {
+    if (!rideId) return;
+    saveActiveTrip({
+      rideId,
+      riderName: params.riderName,
+      riderPhone: params.riderPhone,
+      from: params.from,
+      to: params.to,
+      price: params.price,
+      fromLat: params.fromLat,
+      fromLng: params.fromLng,
+      toLat: params.toLat,
+      toLng: params.toLng,
+      phase: 'toPickup',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rideId]);
+
+  // Keep the persisted phase and the ongoing "trip in progress" notification in
+  // sync with the current stage, so a resume lands correctly and the driver has
+  // a persistent tap-back entry in the shade while navigating.
+  useEffect(() => {
+    if (!rideId || phase === 'summary') return;
+    updateActiveTripPhase(rideId, phase);
+    const line =
+      phase === 'toPickup'
+        ? `Heading to pick up ${riderName.split(' ')[0]} · ${from}`
+        : phase === 'arrived'
+        ? `Waiting for ${riderName.split(' ')[0]} at ${from}`
+        : `Trip in progress · to ${to}`;
+    showOngoingNotification('VELO — trip active', line);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, rideId]);
+
   // Persist a ride-status change without letting a dropped write (offline, or a
   // missing ride doc) crash the flow — the local UI advances regardless.
   const safeStatus = async (status: Parameters<typeof updateRideStatus>[1], extra?: Parameters<typeof updateRideStatus>[2]) => {
@@ -176,6 +220,7 @@ export default function DriverTripScreen() {
           onPress: async () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             watchRef.current?.remove();
+            await clearActiveTrip();
             await safeStatus('cancelled');
             router.replace('/(driver-tabs)');
           },
@@ -198,6 +243,8 @@ export default function DriverTripScreen() {
     } catch (e) {
       console.warn('[driver-trip] booking earnings failed:', e);
     }
+    // Trip is over — drop the recovery record + ongoing notification.
+    await clearActiveTrip();
     speak('Ride completed.', { interrupt: true });
     setPhase('summary');
   };
