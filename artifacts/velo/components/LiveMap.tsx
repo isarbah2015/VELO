@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
@@ -84,23 +84,17 @@ function HeatBlob({ intensity, index }: { intensity: number; index: number }) {
   );
 }
 
-// The driver's own follow puck — their chosen icon + colour, in a rounded chip
-// with a heading beam, sitting on the driver's position and rotated to their
-// direction of travel (like the Uber/Google Maps vehicle chevron).
-function NavPuck({ marker, heading }: { marker: NavMarker; heading?: number }) {
-  const ic = navIcon(marker.icon);
-  const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
-  const dark = marker.color === '#FFFFFF' || marker.color === '#FFD000';
+// The driver's own follow puck — an Uber-style directional arrow PNG that
+// rotates to the heading (direction of travel), sitting on their position.
+const NAV_ARROW = require('@/assets/images/nav-arrow.png');
+function NavPuck({ heading }: { marker?: NavMarker; heading?: number }) {
   return (
     <View style={styles.puckWrap} pointerEvents="none">
-      {/* directional beam sweeping ahead of the vehicle */}
-      <View style={[styles.puckBeamWrap, heading != null && { transform: [{ rotate: `${heading}deg` }] }]}>
-        <View style={[styles.puckBeam, { borderBottomColor: marker.color }]} />
-      </View>
-      <View style={[styles.puckHalo, { backgroundColor: marker.color }]} />
-      <View style={[styles.puck, { backgroundColor: marker.color }]}>
-        <Family name={ic.name as any} size={20} color={dark ? '#000' : '#FFFFFF'} />
-      </View>
+      <Image
+        source={NAV_ARROW}
+        style={[styles.navArrow, heading != null ? { transform: [{ rotate: `${heading}deg` }] } : null]}
+        resizeMode="contain"
+      />
     </View>
   );
 }
@@ -288,20 +282,8 @@ export default function LiveMap({
 }
 
 const styles = StyleSheet.create({
-  puckWrap: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
-  puckBeamWrap: { position: 'absolute', width: 60, height: 60, alignItems: 'center', justifyContent: 'flex-start' },
-  puckBeam: {
-    width: 0, height: 0,
-    borderLeftWidth: 16, borderRightWidth: 16, borderBottomWidth: 26,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent',
-    opacity: 0.5,
-  },
-  puckHalo: { position: 'absolute', width: 56, height: 56, borderRadius: 28, opacity: 0.22 },
-  puck: {
-    width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 3, borderColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 6,
-  },
+  puckWrap: { alignItems: 'center', justifyContent: 'center', width: 48, height: 48 },
+  navArrow: { width: 44, height: 44 },
   pinWrap: { alignItems: 'center', justifyContent: 'center' },
   pin: {
     width: 16,
