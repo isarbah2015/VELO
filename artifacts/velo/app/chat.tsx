@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -91,11 +90,9 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Header — avatar + name + live status, on a subtle gradient. */}
-      <LinearGradient
-        colors={['#141206', '#09090B']}
-        style={[styles.header, { paddingTop: insets.top + 6 }]}
-      >
+      {/* Header — a transparent floating row, no bar/border, so the chat is one
+          continuous full page. */}
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()} hitSlop={8}>
           <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
         </TouchableOpacity>
@@ -112,7 +109,7 @@ export default function ChatScreen() {
         <TouchableOpacity style={styles.iconBtn} hitSlop={8}>
           <Ionicons name="call" size={20} color="#FFD000" />
         </TouchableOpacity>
-      </LinearGradient>
+      </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -211,8 +208,7 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#09090B' },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, paddingBottom: 12,
-    borderBottomWidth: 1, borderBottomColor: '#1A1A1E',
+    flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, paddingBottom: 10,
   },
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   avatar: {
@@ -255,7 +251,7 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, color: '#F4F4F5', lineHeight: 21 },
   seen: { alignSelf: 'flex-end', color: '#71717A', fontSize: 11, fontWeight: '600', marginTop: 3, marginRight: 4 },
 
-  quickWrap: { borderTopWidth: 1, borderTopColor: '#141417' },
+  quickWrap: {},
   quickRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 8, alignItems: 'center' },
   quickChip: {
     backgroundColor: '#1C1C20', borderWidth: 1, borderColor: '#2A2A30',

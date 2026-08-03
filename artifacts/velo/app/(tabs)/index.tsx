@@ -348,49 +348,51 @@ export default function HomeScreen() {
         animationType="slide"
         onRequestClose={handleCloseBooking}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
-            {bookingState === 'confirm' && (
-              <ConfirmView
-                bike={selectedBike}
-                pickup={pickup}
-                destination={destination}
-                walletBalance={walletBalance}
-                completedRides={completedRides}
-                onConfirm={handleConfirmRide}
-                onCancel={() => setBookingState('idle')}
-              />
-            )}
-            {bookingState === 'searching' && (
-              <SearchingView
-                pickup={pickup}
-                destination={destination}
-                fare={searchInfo?.fare ?? effFare(selectedBike.id)}
-                payMethod={searchInfo?.payMethod ?? 'cash'}
-                onlineCount={onlineCount}
-                onCancel={handleCloseBooking}
-              />
-            )}
-            {bookingState === 'found' && (
-              <FoundView
-                driverName={matchedRide?.driverName ?? 'Your VELO driver'}
-                driverPhone={matchedRide?.driverPhone}
-                rideId={activeRideId}
-                pickup={pickup}
-                destination={destination}
-                onClose={handleCloseBooking}
-                onTrackRide={handleTrackRide}
-                onMessage={() => {
-                  setBookingState('idle');
-                  router.push({
-                    pathname: '/chat',
-                    params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
-                  });
-                }}
-              />
-            )}
+        {bookingState === 'searching' ? (
+          // Full-page immersive "finding a driver" — no bottom-sheet card.
+          <SearchingView
+            pickup={pickup}
+            destination={destination}
+            fare={searchInfo?.fare ?? effFare(selectedBike.id)}
+            payMethod={searchInfo?.payMethod ?? 'cash'}
+            onlineCount={onlineCount}
+            onCancel={handleCloseBooking}
+          />
+        ) : (
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+              {bookingState === 'confirm' && (
+                <ConfirmView
+                  bike={selectedBike}
+                  pickup={pickup}
+                  destination={destination}
+                  walletBalance={walletBalance}
+                  completedRides={completedRides}
+                  onConfirm={handleConfirmRide}
+                  onCancel={() => setBookingState('idle')}
+                />
+              )}
+              {bookingState === 'found' && (
+                <FoundView
+                  driverName={matchedRide?.driverName ?? 'Your VELO driver'}
+                  driverPhone={matchedRide?.driverPhone}
+                  rideId={activeRideId}
+                  pickup={pickup}
+                  destination={destination}
+                  onClose={handleCloseBooking}
+                  onTrackRide={handleTrackRide}
+                  onMessage={() => {
+                    setBookingState('idle');
+                    router.push({
+                      pathname: '/chat',
+                      params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
+                    });
+                  }}
+                />
+              )}
+            </View>
           </View>
-        </View>
+        )}
       </Modal>
     </View>
   );
@@ -614,6 +616,7 @@ function SearchingView({
   onlineCount: number | null;
   onCancel: () => void;
 }) {
+  const searchInsets = useSafeAreaInsets();
   // Elapsed timer — a moving number reassures the rider the search is live.
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -639,20 +642,23 @@ function SearchingView({
   });
 
   return (
-    <View style={{ gap: 18, paddingVertical: 8 }}>
-      <View style={styles.sheetHandle} />
+    <View style={[styles.searchPage, { paddingTop: searchInsets.top + 24, paddingBottom: searchInsets.bottom + 20 }]}>
+      {/* Floating close — no top bar */}
+      <TouchableOpacity style={styles.searchClose} onPress={onCancel} hitSlop={10} activeOpacity={0.8}>
+        <Ionicons name="close" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
 
-      {/* Radar pulse with the VELO bike at the centre */}
-      <View style={styles.radarWrap}>
-        <Animated.View style={[styles.radarRing, ring(0)]} />
-        <Animated.View style={[styles.radarRing, ring(0.4)]} />
-        <View style={styles.radarCore}>
-          <Ionicons name="bicycle" size={30} color="#000" />
+      {/* Centre: radar pulse with the VELO bike + live status */}
+      <View style={styles.searchCenter}>
+        <View style={styles.radarWrap}>
+          <Animated.View style={[styles.radarRing, ring(0)]} />
+          <Animated.View style={[styles.radarRing, ring(0.4)]} />
+          <View style={styles.radarCore}>
+            <Ionicons name="bicycle" size={38} color="#000" />
+          </View>
         </View>
-      </View>
 
-      <View style={{ alignItems: 'center', gap: 4 }}>
-        <Text style={styles.sheetTitle}>Finding your driver…</Text>
+        <Text style={styles.searchBigTitle}>Finding your driver</Text>
         <Text style={styles.sheetSubtitle}>
           {onlineCount == null
             ? 'Connecting you with a nearby VELO driver'
@@ -663,34 +669,36 @@ function SearchingView({
         <Text style={styles.searchTimer}>{mm}:{ss}</Text>
       </View>
 
-      {/* Trip recap so the rider can confirm details while they wait */}
-      <View style={styles.searchRecap}>
-        <View style={styles.searchRouteRow}>
-          <View style={styles.routeDotYellow} />
-          <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
-        </View>
-        <View style={styles.searchRouteConnector} />
-        <View style={styles.searchRouteRow}>
-          <View style={styles.routeDotRedSm} />
-          <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
-        </View>
-        <View style={styles.searchDivider} />
-        <View style={styles.searchMetaRow}>
-          <View style={styles.searchMeta}>
-            <Ionicons name="pricetag-outline" size={15} color="#71717A" />
-            <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+      {/* Bottom: trip recap + cancel, floating on the full page (no card bar) */}
+      <View style={styles.searchBottom}>
+        <View style={styles.searchRecap}>
+          <View style={styles.searchRouteRow}>
+            <View style={styles.routeDotYellow} />
+            <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
           </View>
-          <View style={styles.searchMeta}>
-            <Ionicons name="card-outline" size={15} color="#71717A" />
-            <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+          <View style={styles.searchRouteConnector} />
+          <View style={styles.searchRouteRow}>
+            <View style={styles.routeDotRedSm} />
+            <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
+          </View>
+          <View style={styles.searchDivider} />
+          <View style={styles.searchMetaRow}>
+            <View style={styles.searchMeta}>
+              <Ionicons name="pricetag-outline" size={15} color="#71717A" />
+              <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+            </View>
+            <View style={styles.searchMeta}>
+              <Ionicons name="card-outline" size={15} color="#71717A" />
+              <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
-        <Text style={styles.searchCancelText}>Cancel search</Text>
-      </TouchableOpacity>
-      <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
+        <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
+          <Text style={styles.searchCancelText}>Cancel search</Text>
+        </TouchableOpacity>
+        <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
+      </View>
     </View>
   );
 }
@@ -1201,6 +1209,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
   },
+  // Full-page "finding a driver"
+  searchPage: {
+    flex: 1,
+    backgroundColor: '#09090B',
+    paddingHorizontal: 24,
+    justifyContent: 'space-between',
+  },
+  searchClose: {
+    alignSelf: 'flex-end',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  searchBigTitle: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5, marginTop: 24 },
+  searchBottom: { gap: 14 },
   radarWrap: {
     alignSelf: 'center',
     width: 140,
