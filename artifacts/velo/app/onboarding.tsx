@@ -57,7 +57,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-standard.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.45 }, { translateX: -width * 0.12 }] },
+      imageStyle: { transform: [{ scale: 2.5 }, { translateX: -width * 0.18 }] },
       colors: ['#0A1F2E', '#0A1424', '#09090B'],
       glow: 'rgba(255,208,0,0.22)',
     },
@@ -73,7 +73,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.45 }, { translateX: -width * 0.12 }] },
+      imageStyle: { transform: [{ scale: 2.5 }, { translateX: -width * 0.18 }] },
       colors: ['#0A2A1C', '#0A1A14', '#09090B'],
       glow: 'rgba(34,197,94,0.22)',
     },
@@ -163,7 +163,7 @@ export default function OnboardingScreen() {
       />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top - 6, 6) }]}>
         <View style={styles.headerLogoRow}>
           <AnimatedLogo size={30} />
           <Text style={styles.logo}>VELO</Text>
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingBottom: 16,
+    paddingBottom: 8,
   },
   headerLogoRow: {
     flexDirection: 'row',
