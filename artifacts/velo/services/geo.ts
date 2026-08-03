@@ -153,6 +153,43 @@ export function maneuverText(step: RouteStep, withDistance?: number): string {
   return `${action}.`;
 }
 
+export interface PlaceSuggestion {
+  label: string; // human-readable, e.g. "Accra Mall, East Legon"
+  coord: LngLat;
+}
+
+// Type-ahead address search via Photon (photon.komoot.io) — a free, key-less
+// OpenStreetMap geocoder. No Google Places, so no API billing. Biased to Accra
+// so short local names resolve sensibly. Returns [] on any failure.
+export async function searchPlaces(query: string, signal?: AbortSignal): Promise<PlaceSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 3) return [];
+  try {
+    const url =
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}` +
+      `&limit=6&lang=en&lat=${ACCRA_FALLBACK[1]}&lon=${ACCRA_FALLBACK[0]}`;
+    const res = await fetch(url, { signal });
+    const json = await res.json();
+    const feats: any[] = Array.isArray(json?.features) ? json.features : [];
+    const out: PlaceSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const f of feats) {
+      const c = f?.geometry?.coordinates;
+      if (!Array.isArray(c) || c.length < 2) continue;
+      const p = f.properties ?? {};
+      const label = [p.name, p.street && p.street !== p.name ? p.street : null, p.district, p.city]
+        .filter(Boolean)
+        .join(', ');
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      out.push({ label, coord: [c[0], c[1]] });
+    }
+    return out;
+  } catch {
+    return []; // offline / aborted / server down
+  }
+}
+
 export async function geocode(address: string): Promise<LngLat | null> {
   const q = address?.trim();
   if (!q) return null;

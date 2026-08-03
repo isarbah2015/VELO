@@ -24,6 +24,7 @@ import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
 import { getOnlineDriverCount } from '@/services/driver';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
+import { searchPlaces, type PlaceSuggestion } from '@/services/geo';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
@@ -109,6 +110,26 @@ export default function HomeScreen() {
   const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
+
+  // Address autocomplete (free OSM/Photon geocoder — no Google billing). The
+  // focused field drives a debounced search; tapping a result fills that field.
+  const [activeField, setActiveField] = useState<'pickup' | 'destination' | null>(null);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const activeQuery = activeField === 'pickup' ? pickup : activeField === 'destination' ? destination : '';
+  useEffect(() => {
+    if (!activeField) { setSuggestions([]); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => { searchPlaces(activeQuery, ctrl.signal).then(setSuggestions); }, 280);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [activeQuery, activeField]);
+
+  const pickSuggestion = (s: PlaceSuggestion) => {
+    Haptics.selectionAsync();
+    if (activeField === 'pickup') setPickup(s.label);
+    else if (activeField === 'destination') setDestination(s.label);
+    setActiveField(null);
+    setSuggestions([]);
+  };
 
   const isWeb = Platform.OS === 'web';
   const tabBarHeight = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
@@ -225,6 +246,7 @@ export default function HomeScreen() {
               style={styles.routeInput}
               value={pickup}
               onChangeText={setPickup}
+              onFocus={() => setActiveField('pickup')}
               placeholder="Set pickup point"
               placeholderTextColor="#71717A"
               returnKeyType="next"
@@ -241,12 +263,30 @@ export default function HomeScreen() {
               style={styles.routeInput}
               value={destination}
               onChangeText={setDestination}
+              onFocus={() => setActiveField('destination')}
               placeholder="Enter destination"
               placeholderTextColor="#71717A"
               returnKeyType="done"
             />
           </View>
         </View>
+
+        {/* Address autocomplete results for the focused field (free OSM search). */}
+        {activeField && suggestions.length > 0 && (
+          <View style={styles.suggestBox}>
+            {suggestions.map((s, i) => (
+              <TouchableOpacity
+                key={`${s.label}-${i}`}
+                style={[styles.suggestRow, i > 0 && styles.suggestDivider]}
+                onPress={() => pickSuggestion(s)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="location-outline" size={16} color="#71717A" />
+                <Text style={styles.suggestText} numberOfLines={1}>{s.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Saved places — one-tap destination fill + save the current one. */}
         <View style={styles.placesRow}>
@@ -1044,6 +1084,13 @@ const styles = StyleSheet.create({
   routeLabel: { fontSize: 11, color: '#71717A', fontWeight: '600', marginBottom: 1 },
   routeInput: { fontSize: 15, color: '#FFFFFF', fontWeight: '600', padding: 0 },
   routeDivider: { height: 1, backgroundColor: '#27272A', marginLeft: 23 },
+  suggestBox: {
+    marginTop: 8, backgroundColor: '#131316', borderRadius: 12,
+    borderWidth: 1, borderColor: '#27272A', overflow: 'hidden',
+  },
+  suggestRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 11 },
+  suggestDivider: { borderTopWidth: 1, borderTopColor: '#1F1F23' },
+  suggestText: { flex: 1, fontSize: 14, color: '#E4E4E7', fontWeight: '500' },
   // Single vehicle card
   vehicleTopRow: {
     flexDirection: 'row',
