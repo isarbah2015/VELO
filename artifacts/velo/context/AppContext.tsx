@@ -68,6 +68,7 @@ export interface User {
   name: string;
   phone: string;
   referralCode?: string;
+  rating?: number;
 }
 
 interface AppContextType {
@@ -124,7 +125,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [onboardChecked, setOnboardChecked] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string } | null>(null);
+  const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string; rating?: number } | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
@@ -347,7 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     authInitialized,
     isOnboarded,
     isAuthenticated: !!firebaseUser,
-    user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone, referralCode: profile.referralCode } : null,
+    user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone, referralCode: profile.referralCode, rating: profile.rating } : null,
     role: profile?.role ?? 'rider',
     rides,
     paymentMethods,

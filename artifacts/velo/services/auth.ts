@@ -16,6 +16,7 @@ export interface UserProfile {
   phone: string;
   role: Role;
   walletBalance: number;
+  rating?: number; // rider's star rating (drivers keep theirs on the driver doc)
   referralCode?: string;
   referredBy?: string;
 }
@@ -46,6 +47,7 @@ export async function register(name: string, phone: string, password: string, ro
     phone,
     role,
     walletBalance: 0,
+    rating: 5.0, // new riders start at a perfect 5.0
     referralCode: makeReferralCode(name, cred.user.uid),
     createdAt: serverTimestamp(),
   });

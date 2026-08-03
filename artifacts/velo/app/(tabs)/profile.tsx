@@ -72,7 +72,7 @@ const ROLE_LABEL: Record<Role, string> = { rider: 'Rider', driver: 'Driver' };
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, role, rides, driverStatus, logout, switchRole, navMarker, setNavMarker } = useApp();
+  const { user, role, rides, driverStatus, walletBalance, logout, switchRole, navMarker, setNavMarker } = useApp();
   const router = useRouter();
   const [lang, setLang] = useState<LanguageCode>('en');
 
@@ -237,7 +237,7 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statBox}>
-                <Text style={styles.statNum}>4.8</Text>
+                <Text style={styles.statNum}>{(user?.rating ?? 5).toFixed(1)}</Text>
                 <Text style={styles.statLbl}>Rating</Text>
               </View>
               <View style={styles.statDivider} />
@@ -341,7 +341,7 @@ export default function ProfileScreen() {
             <Ionicons name="wallet" size={24} color="#FFD000" />
             <View>
               <Text style={styles.walletLabel}>VELO Wallet</Text>
-              <Text style={styles.walletBalance}>₵ 0.00</Text>
+              <Text style={styles.walletBalance}>₵ {walletBalance.toFixed(2)}</Text>
             </View>
           </View>
           <View style={styles.walletAddBtn}>

@@ -98,12 +98,42 @@ exports.onRideRequested = onDocumentCreated('rides/{rideId}', async (event) => {
 
 // Ride status advanced → push the relevant party. Fires from the trusted
 // server on the real Firestore transition, so no client is trusted to notify.
+// Fold a rider's 1–5 star rating into the driver's running average. Riders
+// can't write the driver doc (rules), so this runs server-side with admin
+// rights, inside a transaction, and marks the ride `ratingApplied` so a retry
+// or a re-edit can't double-count.
+async function applyDriverRating(driverId, rating) {
+  const ref = db.collection('drivers').doc(driverId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const d = snap.data() || {};
+    const count = (d.ratingCount || 0) + 1;
+    const sum = (d.ratingSum || 0) + rating;
+    tx.update(ref, { ratingCount: count, ratingSum: sum, rating: Math.round((sum / count) * 100) / 100 });
+  });
+}
+
 exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
-  if (!before || !after || before.status === after.status) return;
+  if (!before || !after) return;
 
   const rideId = event.params.rideId;
+
+  // Rate-driver loop: when the rider's star rating first appears on the ride,
+  // fold it into the driver's average. Runs regardless of a status change so a
+  // rating submitted after the trip completes is still counted.
+  const newRating = Number(after.rating);
+  if (
+    newRating >= 1 && newRating <= 5 &&
+    after.rating !== before.rating &&
+    after.driverId && !after.ratingApplied
+  ) {
+    await applyDriverRating(after.driverId, newRating);
+    await event.data.after.ref.update({ ratingApplied: true });
+  }
+
+  if (before.status === after.status) return;
   const riderTokens = await tokensFor(after.riderId);
 
   switch (after.status) {
