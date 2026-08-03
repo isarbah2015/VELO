@@ -5,6 +5,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import AnimatedSplash from '@/components/AnimatedSplash';
+import { applyGlobalFont } from '@/utils/globalFont';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -114,6 +115,9 @@ export default function RootLayout() {
   // continuously until the animated V is on screen underneath it. One logo,
   // no blank frame, no second splash.
   if (!fontsLoaded && !fontError) return null;
+
+  // Once the premium typeface is loaded, apply it app-wide (weight-aware).
+  if (fontsLoaded) applyGlobalFont();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
