@@ -57,10 +57,9 @@ const SLIDES: {
       image: require('@/assets/images/bike-standard.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
-      // Yellow → black brand gradient.
-      colors: ['#3D3000', '#141000', '#09090B'],
-      glow: 'rgba(255,208,0,0.28)',
+      imageStyle: { transform: [{ scale: 1.7 }, { translateX: -width * 0.2 }, { translateY: -height * 0.05 }] },
+      colors: ['#0A1F2E', '#0A1424', '#09090B'],
+      glow: 'rgba(255,208,0,0.22)',
     },
   },
   {
@@ -69,26 +68,14 @@ const SLIDES: {
     title: 'Mobile Money\nAccepted.',
     subtitle: 'Pay with MTN MoMo, Vodafone Cash, AirtelTigo, card, or cash — your choice.',
     features: ['MTN MoMo', 'Vodafone Cash', 'AirtelTigo'],
-    // Premium bike flipped vertically so it hangs from the top of the phone: the
-    // gold front wheel + USD forks fill the top band down to mid-screen, the rest
-    // fading into the dark for the text below. Transform order matters — translate
-    // is listed first so it applies in final screen space (RN composes last→first);
-    // scaleY:-1 does the flip, scale 1.8 crops to ~a quarter of the bike. Framing
-    // reverse-engineered from a per-pixel render of this exact PNG.
+    // Premium bike — shown whole in the top area (no crop), text sits below.
     bg: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
-      imageStyle: {
-        transform: [
-          { translateX: -width * 0.54 },
-          { translateY: height * 0.032 },
-          { scale: 1.8 },
-          { scaleY: -1 },
-        ],
-      },
-      // Yellow → black brand gradient (matches slide 2).
-      colors: ['#3D3000', '#141000', '#09090B'],
-      glow: 'rgba(255,208,0,0.28)',
+      // Zoom into the front quarter (front wheel + fairing).
+      imageStyle: { transform: [{ scale: 1.7 }, { translateX: -width * 0.2 }, { translateY: -height * 0.05 }] },
+      colors: ['#0A2A1C', '#0A1A14', '#09090B'],
+      glow: 'rgba(34,197,94,0.22)',
     },
   },
 ];
@@ -169,8 +156,8 @@ export default function OnboardingScreen() {
       })}
       {/* Shared bottom scrim so the text stays legible on every background. */}
       <LinearGradient
-        colors={['rgba(9,9,11,0.5)', 'rgba(9,9,11,0.15)', 'rgba(9,9,11,0.75)', 'rgba(9,9,11,0.98)']}
-        locations={[0, 0.4, 0.72, 0.92]}
+        colors={['transparent', 'rgba(9,9,11,0.12)', 'rgba(9,9,11,0.88)', '#09090B']}
+        locations={[0, 0.42, 0.66, 0.84]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -194,13 +181,6 @@ export default function OnboardingScreen() {
             front quarter; the screen edges do the cropping. */}
         {isContain && slide.bg.image && (
           <View style={styles.heroClip}>
-            {/* Soft radial-ish glow so a dark bike separates from the backdrop. */}
-            <LinearGradient
-              colors={[slide.bg.glow, 'transparent']}
-              start={{ x: 0.5, y: 0.35 }}
-              end={{ x: 0.5, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
             <Image
               source={slide.bg.image}
               style={[styles.heroImg, slide.bg.imageStyle]}
@@ -273,7 +253,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: height * 0.46,
+    height: height * 0.50,
     overflow: 'hidden',
   },
   heroImg: {
@@ -312,7 +292,7 @@ const styles = StyleSheet.create({
   },
   textContent: {
     paddingHorizontal: 28,
-    gap: 12,
+    gap: 9,
   },
   featureList: {
     gap: 10,
@@ -331,7 +311,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
   },
   featureText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
   },
@@ -354,7 +334,7 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 36,
+    lineHeight: 35,
     letterSpacing: -0.5,
   },
   subtitle: {
