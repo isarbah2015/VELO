@@ -253,25 +253,7 @@ export default function DriverHomeScreen() {
 
       {/* Bottom action panel */}
       <View style={[styles.bottomWrap, { bottom: tabBarH + 8 }]}>
-        {/* Driver tier + promotion progress — sits just above the status panel */}
-        {!incoming && (
-          <View style={styles.tierPill}>
-            <Ionicons name={tp.tier === 'bossu' ? 'flash' : tp.tier === 'premium' ? 'shield-checkmark' : 'speedometer'} size={14} color="#FFD000" />
-            <Text style={styles.tierName}>{tp.current.label}</Text>
-            {tp.next ? (
-              <>
-                <View style={styles.tierBarTrack}>
-                  <View style={[styles.tierBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
-                </View>
-                <Text style={styles.tierNext} numberOfLines={1}>
-                  {tp.ridesToNext > 0 ? `${tp.ridesToNext} rides` : 'keep rating'}{tp.ratingNeeded ? ` +${tp.ratingNeeded}★` : ''} → {tp.next.label}
-                </Text>
-              </>
-            ) : (
-              <Text style={styles.tierNext}>Top tier 🎉</Text>
-            )}
-          </View>
-        )}
+        {/* Driver tier now lives on the Profile screen — not duplicated here. */}
 
         {/* Verification gate banner — an unverified/pending/rejected driver
             can't go online, so surface a clear CTA to finish verification. */}
