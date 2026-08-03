@@ -94,7 +94,7 @@ type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace } = useApp();
+  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace, navMarker } = useApp();
   // Rider loyalty: completed trips drive the tier + its standing fare discount.
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
@@ -212,7 +212,7 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="route" />
+        <LiveMap width={width} height={height} mode="route" centerOnUser navMarker={navMarker} />
       </View>
 
       {/* Floating route card — type pickup + destination directly (no modal) */}

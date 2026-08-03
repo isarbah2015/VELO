@@ -230,7 +230,7 @@ export default function DriverHomeScreen() {
 
       {/* Full-screen map with the rider-demand heatmap (Yandex-Pro style) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="nearby" showDemand navMarker={navMarker} />
+        <LiveMap width={width} height={height} mode="nearby" showDemand navMarker={navMarker} centerOnUser />
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
 

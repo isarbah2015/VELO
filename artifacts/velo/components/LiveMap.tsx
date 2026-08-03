@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import * as Location from 'expo-location';
 import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
 // Coordinates are [longitude, latitude] for MapLibre.
@@ -127,10 +128,12 @@ export default function LiveMap({
   navMarker,
   hidePoi,
   heading,
+  centerOnUser,
 }: {
   width: number;
   height: number;
   mode: 'route' | 'nearby';
+  centerOnUser?: boolean; // on the home maps: recenter on and mark the user's GPS location
   // Optional real coordinates ([lng, lat]); default to the Accra demo route.
   pickup?: [number, number];
   dest?: [number, number];
@@ -158,6 +161,25 @@ export default function LiveMap({
     return () => { alive = false; };
   }, [hidePoi]);
 
+  // Home maps: fetch the user's GPS position once so the camera opens centred on
+  // where they actually are (with the nav puck on it), not the Accra demo view.
+  const [userLoc, setUserLoc] = React.useState<[number, number] | null>(null);
+  React.useEffect(() => {
+    if (!centerOnUser) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (alive) setUserLoc([pos.coords.longitude, pos.coords.latitude]);
+      } catch {
+        /* permission denied or location off — fall back to the default view */
+      }
+    })();
+    return () => { alive = false; };
+  }, [centerOnUser]);
+
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
       <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true}>
@@ -174,11 +196,31 @@ export default function LiveMap({
           />
         ) : follow ? (
           <Camera trackUserLocation="course" zoom={15.5} pitch={55} />
+        ) : centerOnUser ? (
+          // Home: lock the camera onto the user's live GPS so the nav puck sits
+          // centred (north-up), flying to a fallback view until a fix arrives.
+          <Camera
+            center={userLoc ?? center}
+            zoom={userLoc ? 15 : 12.5}
+            easing="ease"
+            duration={800}
+          />
         ) : (
           <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
         )}
-        {/* Blue GPS dot only when we aren't drawing an explicit vehicle marker. */}
-        <UserLocation>{navMarker && !driver ? <NavPuck marker={navMarker} heading={heading} /> : null}</UserLocation>
+        {/* Follow/nav modes: puck rides the native UserLocation. On the home maps
+            UserLocation doesn't anchor a custom child reliably, so we draw the
+            puck as a positioned Marker at the fetched coordinate instead. */}
+        <UserLocation>
+          {navMarker && !driver && !centerOnUser
+            ? <NavPuck marker={navMarker} heading={heading} />
+            : null}
+        </UserLocation>
+        {centerOnUser && userLoc ? (
+          <Marker id="me" lngLat={userLoc}>
+            <NavPuck marker={navMarker ?? DEFAULT_NAV_MARKER} heading={heading} />
+          </Marker>
+        ) : null}
 
         {showDemand
           ? DEMAND.map(([lng, lat, intensity], i) => (
