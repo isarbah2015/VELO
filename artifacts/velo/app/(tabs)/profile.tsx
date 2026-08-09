@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   Platform,
   ScrollView,
   Share,
@@ -10,13 +11,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
-import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
+import { NAV_ICONS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
 import { tierProgress } from '@/services/tiers';
 import {
@@ -359,34 +360,25 @@ export default function ProfileScreen() {
             <View style={styles.navIconRow}>
               {NAV_ICONS.map((ic) => {
                 const active = navMarker.icon === ic.id;
-                const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
                 return (
                   <TouchableOpacity
                     key={ic.id}
-                    style={[styles.navIconChip, active && { borderColor: navMarker.color, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                    style={[styles.navIconChip, active && styles.navIconChipActive]}
                     onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, icon: ic.id }); }}
                     activeOpacity={0.85}
                   >
-                    <View style={[styles.navIconPuck, { backgroundColor: active ? navMarker.color : '#1C1C1F' }]}>
-                      <Family name={ic.name as any} size={22} color={active ? (navMarker.color === '#FFFFFF' || navMarker.color === '#FFD000' ? '#000' : '#FFF') : '#A1A1AA'} />
+                    <View style={styles.navIconPuck}>
+                      <Image source={ic.source} style={styles.navIconImg} resizeMode="contain" />
                     </View>
                     <Text style={[styles.navIconLabel, active && { color: '#FFFFFF' }]}>{ic.label}</Text>
+                    {active && (
+                      <View style={styles.navIconCheck}>
+                        <Ionicons name="checkmark" size={12} color="#000" />
+                      </View>
+                    )}
                   </TouchableOpacity>
                 );
               })}
-            </View>
-
-            <View style={styles.navColorRow}>
-              {NAV_COLORS.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.navSwatch, { backgroundColor: c }, navMarker.color === c && styles.navSwatchActive]}
-                  onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, color: c }); }}
-                  activeOpacity={0.85}
-                >
-                  {navMarker.color === c && <Ionicons name="checkmark" size={16} color={c === '#FFFFFF' || c === '#FFD000' ? '#000' : '#FFF'} />}
-                </TouchableOpacity>
-              ))}
             </View>
           </View>
         )}
@@ -574,12 +566,17 @@ const styles = StyleSheet.create({
   navSub: { fontSize: 12, color: '#71717A', marginTop: 2, marginBottom: 14 },
   navIconRow: { flexDirection: 'row', gap: 10 },
   navIconChip: {
-    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12,
+    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 14,
     borderRadius: 14, borderWidth: 1.5, borderColor: '#2A2A2D', backgroundColor: '#131316',
   },
+  navIconChipActive: { borderColor: '#FFD000', backgroundColor: 'rgba(255,208,0,0.08)' },
   navIconPuck: {
-    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.15)',
+    width: 52, height: 52, alignItems: 'center', justifyContent: 'center',
+  },
+  navIconImg: { width: 48, height: 48 },
+  navIconCheck: {
+    position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#FFD000', alignItems: 'center', justifyContent: 'center',
   },
   navIconLabel: { fontSize: 12, fontWeight: '700', color: '#A1A1AA' },
   navColorRow: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'center' },

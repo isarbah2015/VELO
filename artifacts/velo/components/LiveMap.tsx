@@ -84,14 +84,14 @@ function HeatBlob({ intensity, index }: { intensity: number; index: number }) {
   );
 }
 
-// The driver's own follow puck — an Uber-style directional arrow PNG that
-// rotates to the heading (direction of travel), sitting on their position.
-const NAV_ARROW = require('@/assets/images/nav-arrow.png');
-function NavPuck({ heading }: { marker?: NavMarker; heading?: number }) {
+// The driver's own follow puck — a premium top-down PNG marker (pro arrow or a
+// motorbike) that rotates to the heading (direction of travel).
+function NavPuck({ marker, heading }: { marker?: NavMarker; heading?: number }) {
+  const source = navIcon(marker?.icon ?? DEFAULT_NAV_MARKER.icon).source;
   return (
     <View style={styles.puckWrap} pointerEvents="none">
       <Image
-        source={NAV_ARROW}
+        source={source}
         style={[styles.navArrow, heading != null ? { transform: [{ rotate: `${heading}deg` }] } : null]}
         resizeMode="contain"
       />
