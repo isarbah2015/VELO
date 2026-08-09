@@ -228,6 +228,7 @@ export default function TrackingScreen() {
     router.replace({
       pathname: '/receipt',
       params: {
+        rideId: rideId ?? '',
         from, to, price: String(price), durationMin: String(durationMin),
         paymentMethod, driverName, rideType, rating: String(rating || 0),
       },

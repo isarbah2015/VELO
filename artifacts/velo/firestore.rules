@@ -57,5 +57,13 @@ service cloud.firestore {
         );
       }
     }
+
+    // Trip disputes / problem reports. A signed-in user files their own report
+    // and can read it back; only an admin/ops backend (service account, which
+    // bypasses rules) triages or updates them.
+    match /disputes/{disputeId} {
+      allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow read: if signedIn() && resource.data.reporterId == request.auth.uid;
+    }
   }
 }

@@ -91,6 +91,7 @@ function RootLayoutNav() {
       <Stack.Screen name="faq" />
       <Stack.Screen name="notification-settings" />
       <Stack.Screen name="emergency-contacts" />
+      <Stack.Screen name="report-trip" />
       <Stack.Screen name="referral" />
       <Stack.Screen name="wallet" />
       <Stack.Screen name="payment-methods" />

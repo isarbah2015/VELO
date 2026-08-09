@@ -12,6 +12,7 @@ export default function ReceiptScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const p = useLocalSearchParams<{
+    rideId?: string;
     from?: string; to?: string; price?: string; durationMin?: string;
     paymentMethod?: string; driverName?: string; rideType?: string; rating?: string; date?: string;
   }>();
@@ -83,6 +84,14 @@ export default function ReceiptScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+        <TouchableOpacity
+          style={styles.reportLink}
+          onPress={() => router.push({ pathname: '/report-trip', params: { rideId: p.rideId ?? '', from: p.from ?? '', to: p.to ?? '' } })}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="flag-outline" size={15} color="#A1A1AA" />
+          <Text style={styles.reportText}>Report a problem with this trip</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.doneBtn} onPress={() => router.replace('/(tabs)')} activeOpacity={0.85}>
           <Text style={styles.doneText}>Done</Text>
         </TouchableOpacity>
@@ -133,6 +142,11 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 12,
     backgroundColor: '#09090B', borderTopWidth: 1, borderTopColor: '#18181B',
   },
+  reportLink: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    paddingVertical: 10, marginBottom: 4,
+  },
+  reportText: { fontSize: 13, color: '#A1A1AA', fontWeight: '600' },
   doneBtn: { backgroundColor: '#FFD000', borderRadius: 16, height: 54, alignItems: 'center', justifyContent: 'center' },
   doneText: { fontSize: 17, fontWeight: '800', color: '#000' },
 });
