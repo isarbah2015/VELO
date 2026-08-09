@@ -20,7 +20,7 @@ import { useApp, type Ride } from '@/context/AppContext';
 import * as Location from 'expo-location';
 import { watchRide, updateRiderLocation } from '@/services/rides';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
-import LiveMap from '@/components/LiveMap';
+import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
 import { bearing, distanceKm, etaMinutes, getRoute, type LngLat, type RouteResult } from '@/services/geo';
 
 const { width, height } = Dimensions.get('window');
@@ -69,6 +69,7 @@ export default function TrackingScreen() {
   // Firestore — drives the real map + ETA once a driver is actually moving.
   const [ride, setRide] = useState<Ride | null>(null);
   const prevDriverLL = useRef<LngLat | null>(null);
+  const mapRef = useRef<LiveMapHandle>(null);
   const [driverHeading, setDriverHeading] = useState(0);
 
   const mapW = width;
@@ -283,6 +284,7 @@ export default function TrackingScreen() {
       {/* Live map — real driver GPS puck, route line, and follow camera. */}
       <View style={[styles.mapArea, { height: mapH, marginTop: topPad + 60 }]}>
         <LiveMap
+          ref={mapRef}
           width={mapW}
           height={mapH}
           mode="route"
@@ -294,6 +296,14 @@ export default function TrackingScreen() {
           routeLine={route?.coords ?? null}
           follow={phase === 'arriving' || phase === 'inProgress'}
         />
+        {/* Recenter — re-frame the trip / follow after the rider pans the map. */}
+        <TouchableOpacity
+          style={styles.recenterFab}
+          onPress={() => { Haptics.selectionAsync(); mapRef.current?.recenter(); }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="locate" size={22} color="#FFD000" />
+        </TouchableOpacity>
       </View>
 
       {/* Floating Header */}
@@ -671,6 +681,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#09090B',
+  },
+  recenterFab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(20,20,22,0.92)',
+    borderWidth: 1,
+    borderColor: '#2A2A2D',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 5,
   },
   mapArea: {
     position: 'absolute',

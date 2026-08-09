@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import LiveMap from '@/components/LiveMap';
+import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
 import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
@@ -110,6 +110,7 @@ export default function HomeScreen() {
   const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
+  const mapRef = React.useRef<LiveMapHandle>(null);
 
   // Address autocomplete (free OSM/Photon geocoder — no Google billing). The
   // focused field drives a debounced search; tapping a result fills that field.
@@ -233,7 +234,7 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="route" centerOnUser navMarker={navMarker} />
+        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser navMarker={navMarker} />
       </View>
 
       {/* Floating route card — type pickup + destination directly (no modal) */}
@@ -252,7 +253,12 @@ export default function HomeScreen() {
               returnKeyType="next"
             />
           </View>
-          <Ionicons name="locate" size={18} color="#FFD000" />
+          <TouchableOpacity
+            onPress={() => { Haptics.selectionAsync(); mapRef.current?.recenter(); }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="locate" size={18} color="#FFD000" />
+          </TouchableOpacity>
         </View>
         <View style={styles.routeDivider} />
         <View style={styles.routeRow}>

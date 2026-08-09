@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, type CameraRef, type LngLatBounds } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
@@ -108,22 +108,11 @@ function Pin({ color, bike }: { color: string; bike?: boolean }) {
   );
 }
 
-export default function LiveMap({
-  width,
-  height,
-  mode,
-  pickup,
-  dest,
-  driver,
-  rider,
-  routeLine,
-  showDemand,
-  follow,
-  navMarker,
-  hidePoi,
-  heading,
-  centerOnUser,
-}: {
+export interface LiveMapHandle {
+  recenter: () => void; // re-frame the map on the user / trip after the user pans
+}
+
+interface LiveMapProps {
   width: number;
   height: number;
   mode: 'route' | 'nearby';
@@ -139,11 +128,50 @@ export default function LiveMap({
   navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
   hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
   heading?: number; // driver's course (deg) to orient the vehicle marker
-}) {
+}
+
+const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
+  width,
+  height,
+  mode,
+  pickup,
+  dest,
+  driver,
+  rider,
+  routeLine,
+  showDemand,
+  follow,
+  navMarker,
+  hidePoi,
+  heading,
+  centerOnUser,
+}, ref) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
   const center: [number, number] =
     mode === 'route' ? (driver ?? [(p[0] + d[0]) / 2, (p[1] + d[1]) / 2]) : ACCRA;
+
+  const camRef = React.useRef<CameraRef>(null);
+  const userLocRef = React.useRef<[number, number] | null>(null); // latest GPS for recenter
+
+  // Bounds framing pickup + destination (+ driver) so the whole trip is visible.
+  const tripBounds = React.useCallback((): LngLatBounds | null => {
+    if (!pickup || !dest) return null;
+    const pts = driver ? [pickup, dest, driver] : [pickup, dest];
+    const lngs = pts.map((x) => x[0]);
+    const lats = pts.map((x) => x[1]);
+    return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  }, [pickup, dest, driver]);
+
+  // Recenter control: re-fit the trip if one's in view, otherwise fly back to
+  // the user's location (used by the floating "locate" button after a pan).
+  React.useImperativeHandle(ref, () => ({
+    recenter: () => {
+      const b = !follow && !centerOnUser ? tripBounds() : null;
+      if (b) { camRef.current?.fitBounds(b, { duration: 500 }); return; }
+      camRef.current?.flyTo({ center: userLocRef.current ?? driver ?? center, zoom: 15, duration: 500 });
+    },
+  }));
 
   // When asked to hide POIs, swap in the fetched POI-free style once it resolves
   // (until then, the plain style renders so the map never blanks out).
@@ -166,13 +194,27 @@ export default function LiveMap({
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (alive) setUserLoc([pos.coords.longitude, pos.coords.latitude]);
+        const ll: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        userLocRef.current = ll;
+        if (alive) setUserLoc(ll);
       } catch {
         /* permission denied or location off — fall back to the default view */
       }
     })();
     return () => { alive = false; };
   }, [centerOnUser]);
+
+  // Auto-fit the whole trip once pickup + destination are known and we're not
+  // following/centred (i.e. just after a match) — like Uber framing the route.
+  // Fits once (not on every driver GPS tick) so it doesn't fight panning.
+  React.useEffect(() => {
+    if (follow || centerOnUser || !pickup || !dest) return;
+    const b = tripBounds();
+    if (!b) return;
+    const t = setTimeout(() => camRef.current?.fitBounds(b, { duration: 700 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, centerOnUser, pickup?.[0], pickup?.[1], dest?.[0], dest?.[1]]);
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
@@ -181,6 +223,7 @@ export default function LiveMap({
           // Turn-by-turn: keep the driver's vehicle centred, rotate the map to
           // their heading, tilted for a 3D nav view (like Uber/Google Maps).
           <Camera
+            ref={camRef}
             center={driver}
             bearing={heading ?? 0}
             pitch={55}
@@ -189,18 +232,19 @@ export default function LiveMap({
             duration={700}
           />
         ) : follow ? (
-          <Camera trackUserLocation="course" zoom={15.5} pitch={55} />
+          <Camera ref={camRef} trackUserLocation="course" zoom={15.5} pitch={55} />
         ) : centerOnUser ? (
           // Home: lock the camera onto the user's live GPS so the nav puck sits
           // centred (north-up), flying to a fallback view until a fix arrives.
           <Camera
+            ref={camRef}
             center={userLoc ?? center}
             zoom={userLoc ? 15 : 12.5}
             easing="ease"
             duration={800}
           />
         ) : (
-          <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
+          <Camera ref={camRef} initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
         )}
         {/* Follow/nav modes: puck rides the native UserLocation. On the home maps
             UserLocation doesn't anchor a custom child reliably, so we draw the
@@ -279,7 +323,9 @@ export default function LiveMap({
       </Map>
     </View>
   );
-}
+});
+
+export default LiveMap;
 
 const styles = StyleSheet.create({
   puckWrap: { alignItems: 'center', justifyContent: 'center', width: 48, height: 48 },
