@@ -11,8 +11,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.velo.ridehailing",
-      "config": {
-        "googleMapsApiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -21,11 +21,11 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#09090B"
       },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
-        }
-      }
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -73,6 +73,15 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "83621615-8396-435c-9141-8ec58db00c38"
+      }
+    },
+    "owner": "davidsarb-2"
   }
 }
