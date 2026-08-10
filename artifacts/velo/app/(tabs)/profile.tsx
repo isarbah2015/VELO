@@ -190,9 +190,13 @@ export default function ProfileScreen() {
         <View style={styles.userCard}>
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user?.name?.charAt(0).toUpperCase() ?? 'R'}
-              </Text>
+              {user?.photoURL ? (
+                <Image source={{ uri: user.photoURL }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {user?.name?.charAt(0).toUpperCase() ?? 'R'}
+                </Text>
+              )}
             </View>
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={10} color="#000" />
@@ -472,6 +476,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   avatarText: {
     fontSize: 26,

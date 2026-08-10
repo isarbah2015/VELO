@@ -1,21 +1,68 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActionSheetIOS, Alert, Image, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '@/context/AppContext';
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, updateProfile } = useApp();
+  const { user, updateProfile, updateProfilePhoto } = useApp();
 
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const dirty = name.trim().length >= 2 && name.trim() !== user?.name;
+
+  // Apply a picked/taken image: upload to Storage + persist on the profile.
+  const applyPhoto = async (result: ImagePicker.ImagePickerResult) => {
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    setUploading(true);
+    try {
+      await updateProfilePhoto(result.assets[0].uri);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Upload failed', 'Could not update your photo. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) { Alert.alert('Camera access needed', 'Enable camera access in Settings to take a photo.'); return; }
+    await applyPhoto(await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 }));
+  };
+
+  const chooseFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert('Photos access needed', 'Enable photo access in Settings to pick a photo.'); return; }
+    await applyPhoto(await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.6,
+    }));
+  };
+
+  const pickPhoto = () => {
+    if (uploading) return;
+    Haptics.selectionAsync();
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Take Photo', 'Choose from Library', 'Cancel'], cancelButtonIndex: 2 },
+        (i) => { if (i === 0) takePhoto(); else if (i === 1) chooseFromLibrary(); },
+      );
+    } else {
+      Alert.alert('Profile photo', undefined, [
+        { text: 'Take Photo', onPress: takePhoto },
+        { text: 'Choose from Library', onPress: chooseFromLibrary },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  };
 
   const save = async () => {
     if (!dirty) return;
@@ -44,9 +91,17 @@ export default function EditProfileScreen() {
 
       <View style={styles.body}>
         <View style={styles.avatarWrap}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(name || 'R').charAt(0).toUpperCase()}</Text>
-          </View>
+          <TouchableOpacity style={styles.avatar} onPress={pickPhoto} activeOpacity={0.85}>
+            {user?.photoURL ? (
+              <Image source={{ uri: user.photoURL }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>{(name || 'R').charAt(0).toUpperCase()}</Text>
+            )}
+            <View style={styles.avatarBadge}>
+              <Ionicons name={uploading ? 'hourglass' : 'camera'} size={16} color="#000" />
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.avatarHint}>{uploading ? 'Uploading…' : 'Tap to change photo'}</Text>
         </View>
 
         <Text style={styles.fieldLabel}>Full name</Text>
@@ -101,7 +156,14 @@ const styles = StyleSheet.create({
     width: 88, height: 88, borderRadius: 44, backgroundColor: '#FFD000',
     alignItems: 'center', justifyContent: 'center',
   },
+  avatarImg: { width: 88, height: 88, borderRadius: 44 },
   avatarText: { fontSize: 38, fontWeight: '800', color: '#000000' },
+  avatarBadge: {
+    position: 'absolute', right: -2, bottom: -2, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: '#FFD000', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: '#09090B',
+  },
+  avatarHint: { fontSize: 12, color: '#A1A1AA', marginTop: 10 },
   fieldLabel: { fontSize: 13, color: '#A1A1AA', fontWeight: '500', marginBottom: 6, marginTop: 16 },
   input: {
     backgroundColor: '#1C1C1F', borderWidth: 1, borderColor: '#3F3F46', borderRadius: 12,

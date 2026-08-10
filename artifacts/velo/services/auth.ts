@@ -6,7 +6,8 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '@/config/firebase';
 import { makeReferralCode } from './referrals';
 
 export type Role = 'rider' | 'driver';
@@ -19,6 +20,7 @@ export interface UserProfile {
   rating?: number; // rider's star rating (drivers keep theirs on the driver doc)
   referralCode?: string;
   referredBy?: string;
+  photoURL?: string; // profile picture download URL (Firebase Storage)
 }
 
 const DEFAULT_DRIVER_DOC = {
@@ -97,6 +99,19 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 // Update the rider/driver's display name from the edit-profile screen.
 export async function updateUserName(uid: string, name: string) {
   await updateDoc(doc(db, 'users', uid), { name: name.trim() });
+}
+
+// Upload a picked profile photo to Storage and persist its URL on the user doc.
+// RN has no File/Blob from a path, so we fetch the local uri into a blob first
+// (same approach as driver verification uploads).
+export async function updateUserPhoto(uid: string, uri: string): Promise<string> {
+  const res = await fetch(uri);
+  const blob = await res.blob();
+  const storageRef = ref(storage, `avatars/${uid}/avatar.jpg`);
+  await uploadBytes(storageRef, blob);
+  const url = await getDownloadURL(storageRef);
+  await updateDoc(doc(db, 'users', uid), { photoURL: url });
+  return url;
 }
 
 // Switching into Driver mode for the first time provisions the drivers/{uid}

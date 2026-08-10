@@ -69,6 +69,7 @@ export interface User {
   phone: string;
   referralCode?: string;
   rating?: number;
+  photoURL?: string;
 }
 
 interface AppContextType {
@@ -90,6 +91,7 @@ interface AppContextType {
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
   updateProfile: (name: string) => Promise<void>;
+  updateProfilePhoto: (uri: string) => Promise<void>;
 
   requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => Promise<string>;
   refreshRides: () => Promise<void>;
@@ -125,7 +127,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [onboardChecked, setOnboardChecked] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string; rating?: number } | null>(null);
+  const [profile, setProfile] = useState<{ name: string; phone: string; role: Role; walletBalance: number; referralCode?: string; rating?: number; photoURL?: string } | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
@@ -223,6 +225,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!firebaseUser) return;
     await authService.updateUserName(firebaseUser.uid, name);
     setProfile((p) => (p ? { ...p, name: name.trim() } : p));
+  }, [firebaseUser]);
+
+  // Edit-profile: upload the picked avatar, then reflect it locally so the
+  // profile header and edit screen show the new photo immediately.
+  const updateProfilePhoto = useCallback(async (uri: string) => {
+    if (!firebaseUser) return;
+    const url = await authService.updateUserPhoto(firebaseUser.uid, uri);
+    setProfile((p) => (p ? { ...p, photoURL: url } : p));
   }, [firebaseUser]);
 
   // OPTIMIZED: Instant role switch — update UI immediately, then sync in background
@@ -348,7 +358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     authInitialized,
     isOnboarded,
     isAuthenticated: !!firebaseUser,
-    user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone, referralCode: profile.referralCode, rating: profile.rating } : null,
+    user: profile && firebaseUser ? { uid: firebaseUser.uid, name: profile.name, phone: profile.phone, referralCode: profile.referralCode, rating: profile.rating, photoURL: profile.photoURL } : null,
     role: profile?.role ?? 'rider',
     rides,
     paymentMethods,
@@ -361,6 +371,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logout,
     switchRole,
     updateProfile,
+    updateProfilePhoto,
     requestRide,
     refreshRides,
     cancelRide,
@@ -381,7 +392,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     savedPlaces, addSavedPlace, removeSavedPlace,
-    completeOnboarding, login, signup, logout, switchRole, updateProfile, requestRide, refreshRides, cancelRide, completeRide,
+    completeOnboarding, login, signup, logout, switchRole, updateProfile, updateProfilePhoto, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline, navMarker, setNavMarker,
   ]);
