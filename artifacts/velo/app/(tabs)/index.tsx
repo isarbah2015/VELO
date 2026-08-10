@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
+import MapControls from '@/components/MapControls';
 import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
@@ -105,12 +106,21 @@ export default function HomeScreen() {
   const [pickup, setPickup] = useState('Accra Mall, East Legon');
   const [destination, setDestination] = useState('Osu Oxford Street');
   const [bookingState, setBookingState] = useState<BookingState>('idle');
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
   const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
   const mapRef = React.useRef<LiveMapHandle>(null);
+  const [showMapCtrl, setShowMapCtrl] = useState(false);
+  const ctrlTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealMapCtrl = () => {
+    setShowMapCtrl(true);
+    if (ctrlTimer.current) clearTimeout(ctrlTimer.current);
+    ctrlTimer.current = setTimeout(() => setShowMapCtrl(false), 5000);
+  };
+  useEffect(() => () => { if (ctrlTimer.current) clearTimeout(ctrlTimer.current); }, []);
 
   // Address autocomplete (free OSM/Photon geocoder — no Google billing). The
   // focused field drives a debounced search; tapping a result fills that field.
@@ -234,8 +244,17 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser navMarker={navMarker} />
+        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser navMarker={navMarker} onMapTap={revealMapCtrl} />
       </View>
+
+      {/* Tap-to-reveal zoom + recenter controls (right side, auto-hiding). */}
+      <MapControls
+        visible={showMapCtrl}
+        top={insets.top + height * 0.30}
+        onZoomIn={() => { mapRef.current?.zoomIn(); revealMapCtrl(); }}
+        onZoomOut={() => { mapRef.current?.zoomOut(); revealMapCtrl(); }}
+        onRecenter={() => { mapRef.current?.recenter(); revealMapCtrl(); }}
+      />
 
       {/* Floating route card — type pickup + destination directly (no modal) */}
       <View style={[styles.routeCard, { top: insets.top + 10 }]}>
@@ -337,41 +356,50 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Bottom sheet — single VELO Standard vehicle card */}
+      {/* Bottom sheet — single VELO Standard vehicle card; tap the top to
+          collapse it down to a compact bar so the map has more room. */}
       <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
-        <View style={styles.sheetHandle} />
-
-        <View style={styles.vehicleTopRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bikeName}>{selectedBike.name}</Text>
-            <View style={styles.fareRow}>
-              <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
-              {completedRides >= 10 && (
-                <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
-              )}
-              <Text style={styles.fareSub}> est. fare</Text>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => { Haptics.selectionAsync(); setSheetCollapsed((v) => !v); }}
+        >
+          <View style={styles.sheetHandle} />
+          <View style={styles.vehicleTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bikeName}>{selectedBike.name}</Text>
+              <View style={styles.fareRow}>
+                <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
+                {completedRides >= 10 && (
+                  <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+                )}
+                <Text style={styles.fareSub}> est. fare</Text>
+                {sheetCollapsed && <Text style={styles.fareSub}> · {selectedBike.eta} away</Text>}
+              </View>
+              {!sheetCollapsed && <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>}
             </View>
-            <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
+            <Ionicons name={sheetCollapsed ? 'chevron-up' : 'chevron-down'} size={20} color="#71717A" />
           </View>
-        </View>
+        </TouchableOpacity>
 
-        <View style={styles.vehicleBody}>
-          <View style={styles.vehicleChipsCol}>
-            <View style={styles.vChip}>
-              <Ionicons name="time-outline" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
+        {!sheetCollapsed && (
+          <View style={styles.vehicleBody}>
+            <View style={styles.vehicleChipsCol}>
+              <View style={styles.vChip}>
+                <Ionicons name="time-outline" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
+              </View>
+              <View style={styles.vChip}>
+                <Ionicons name="star" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
+              </View>
+              <View style={styles.vChip}>
+                <Ionicons name="person-outline" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>1 seat</Text>
+              </View>
             </View>
-            <View style={styles.vChip}>
-              <Ionicons name="star" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
-            </View>
-            <View style={styles.vChip}>
-              <Ionicons name="person-outline" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>1 seat</Text>
-            </View>
+            <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
           </View>
-          <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
-        </View>
+        )}
 
         <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
           <Ionicons name="bicycle" size={18} color="#000000" />
@@ -942,8 +970,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 14,
+    paddingTop: 6,
+    gap: 10,
     borderTopWidth: 1,
     borderColor: '#27272A',
     shadowColor: '#000',
@@ -1157,7 +1185,7 @@ const styles = StyleSheet.create({
   },
   promoOk: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
   promoErr: { color: '#EF4444', fontSize: 12 },
-  farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
+  farePrice: { fontSize: 23, fontWeight: '900', color: '#FFD000' },
   fareStrike: { fontSize: 14, color: '#71717A', fontWeight: '600', textDecorationLine: 'line-through' },
   fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
   fareFormula: { fontSize: 11, color: '#71717A', marginTop: 2 },
@@ -1178,7 +1206,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
   },
-  vehicleChipsCol: { gap: 8 },
+  vehicleChipsCol: { gap: 6 },
   vChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1186,15 +1214,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1C1C1F',
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#2A2A2D',
   },
   vChipText: { fontSize: 13, color: '#E4E4E7', fontWeight: '600' },
   vehicleImg: {
-    width: 235,
-    height: 150,
-    marginRight: -18,
+    width: 196,
+    height: 122,
+    marginRight: -14,
   },
   routeDot: {
     width: 12,
@@ -1212,7 +1240,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#FFD000',
     borderRadius: 16,
-    height: 54,
+    height: 50,
   },
   bookNowText: {
     fontSize: 15,
