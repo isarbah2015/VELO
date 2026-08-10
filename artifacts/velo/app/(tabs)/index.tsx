@@ -24,6 +24,7 @@ import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
 import { getOnlineDriverCount } from '@/services/driver';
+import { estimateFare, rateLabel } from '@/services/pricing';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
 import { searchPlaces, type PlaceSuggestion } from '@/services/geo';
 import { useRouter } from 'expo-router';
@@ -32,9 +33,9 @@ import { StatusBar } from 'expo-status-bar';
 const { width, height } = Dimensions.get('window');
 
 const SERVICES = [
-  { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵2.50/km' },
-  { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵4.00/km' },
-  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵5.00/km' },
+  { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵1.60/km' },
+  { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵2.20/km' },
+  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵3.00/km' },
 ];
 
 const BIKES = [
@@ -78,18 +79,11 @@ const BIKES = [
 const rideTypeFor = (id: string): Ride['type'] =>
   id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
 
-// Distance/time-based pricing model per tier: fare = base + perKm·km + perMin·min.
-// (Estimated trip until live routing distance is wired in.)
-const RATE: Record<Ride['type'], { base: number; perKm: number; perMin: number }> = {
-  Standard: { base: 5, perKm: 2.5, perMin: 0.5 },
-  Premium: { base: 8, perKm: 4.0, perMin: 0.7 },
-  Bossu: { base: 12, perKm: 5.0, perMin: 0.9 },
-};
+// Affordable, minimum-floored fares live in services/pricing.ts. This is the
+// estimate for the demo trip length until live routing distance is wired in.
 const EST_KM = 6.4;
 const EST_MIN = 16;
-const estimateFare = (type: Ride['type']): number =>
-  Math.round(RATE[type].base + RATE[type].perKm * EST_KM + RATE[type].perMin * EST_MIN);
-const fareFor = (id: string): number => estimateFare(rideTypeFor(id));
+const fareFor = (id: string): number => estimateFare(rideTypeFor(id), EST_KM, EST_MIN);
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 type PayMethod = 'wallet' | 'cash' | 'momo';
@@ -375,7 +369,7 @@ export default function HomeScreen() {
                 <Text style={styles.fareSub}> est. fare</Text>
                 {sheetCollapsed && <Text style={styles.fareSub}> · {selectedBike.eta} away</Text>}
               </View>
-              {!sheetCollapsed && <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>}
+              {!sheetCollapsed && <Text style={styles.fareFormula}>{rateLabel(rideTypeFor(selectedBike.id))}</Text>}
             </View>
             <Ionicons name={sheetCollapsed ? 'chevron-up' : 'chevron-down'} size={20} color="#71717A" />
           </View>

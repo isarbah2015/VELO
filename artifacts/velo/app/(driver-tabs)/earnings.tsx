@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import EarningsChart from '@/components/EarningsChart';
 import { useApp, type Ride } from '@/context/AppContext';
 import { getRideHistory } from '@/services/rides';
+import { driverPayout } from '@/services/pricing';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MS_DAY = 86400000;
@@ -41,7 +42,7 @@ export default function DriverEarningsScreen() {
     const week = [0, 0, 0, 0, 0, 0, 0];
     let t = 0, m = 0, life = 0;
     for (const r of done) {
-      const d = new Date(r.date); const ts = d.getTime(); const p = r.price || 0;
+      const d = new Date(r.date); const ts = d.getTime(); const p = driverPayout(r.price || 0);
       life += p;
       if (ts >= som) m += p;
       if (ts >= sod) t += p;
@@ -135,7 +136,7 @@ export default function DriverEarningsScreen() {
                   <Text style={styles.tripRoute} numberOfLines={1}>{r.from} → {r.to}</Text>
                   <Text style={styles.tripMeta}>{shortDate(r.date)} · {shortTime(r.date)} · {r.type}</Text>
                 </View>
-                <Text style={styles.tripFare}>₵{(r.price || 0).toFixed(2)}</Text>
+                <Text style={styles.tripFare}>₵{driverPayout(r.price || 0).toFixed(2)}</Text>
               </View>
             ))}
           </View>
