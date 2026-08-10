@@ -44,16 +44,19 @@ export default function DriverVerifyScreen() {
     });
   }, [user]);
 
+  // Camera-only capture (no gallery). Documents and bike photos must be taken
+  // live so a driver can't upload arbitrary images pulled from elsewhere — a
+  // basic anti-fraud measure for verification.
   const pick = async (key: DocKey) => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to upload your documents.');
+      Alert.alert('Camera access needed', 'Allow camera access to photograph your Ghana Card and motorcycle. Documents must be taken with the camera, not chosen from your gallery.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+    const result = await ImagePicker.launchCameraAsync({
       quality: 0.6,
       allowsEditing: true,
+      cameraType: ImagePicker.CameraType.back,
     });
     if (!result.canceled && result.assets[0]) {
       Haptics.selectionAsync();
@@ -112,8 +115,7 @@ export default function DriverVerifyScreen() {
         </View>
 
         <Text style={styles.intro}>
-          Upload a clear photo of your Ghana Card and all four sides of your motorcycle, and add your
-          plate + bike details. This keeps riders safe and unlocks payouts.
+          Take a clear photo of your Ghana Card and all four sides of your motorcycle (camera only), and add your plate + bike details. This keeps riders safe and unlocks payouts.
         </Text>
 
         {DOC_FIELDS.map((f) => (
@@ -133,7 +135,7 @@ export default function DriverVerifyScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.docLabel}>{f.label}</Text>
               <Text style={[styles.docSub, uris[f.key] && { color: '#22C55E' }]}>
-                {uris[f.key] ? 'Photo added' : 'Tap to upload'}
+                {uris[f.key] ? 'Photo added' : 'Tap to take photo'}
               </Text>
             </View>
             {!locked && <Ionicons name={uris[f.key] ? 'checkmark-circle' : 'chevron-forward'} size={20} color={uris[f.key] ? '#22C55E' : '#3F3F46'} />}

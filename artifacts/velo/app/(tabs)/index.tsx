@@ -353,14 +353,6 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
           </View>
-          <View style={styles.vehicleIcons}>
-            <TouchableOpacity style={styles.roundIcon}>
-              <Ionicons name="heart-outline" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.roundIcon}>
-              <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
         </View>
 
         <View style={styles.vehicleBody}>

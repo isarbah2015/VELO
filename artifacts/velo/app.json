@@ -61,6 +61,13 @@
         {
           "locationWhenInUsePermission": "VELO uses your location to show your position on the map, find nearby drivers, and track trips in real time."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "VELO uses the camera so drivers can photograph their Ghana Card and motorcycle for verification.",
+          "photosPermission": "VELO needs photo access only if you choose an existing image."
+        }
       ]
     ],
     "experiments": {

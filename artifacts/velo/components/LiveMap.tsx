@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, type CameraRef, type LngLatBounds } from '@maplibre/maplibre-react-native';
+import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, type CameraRef, type LngLatBounds, type MapRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
 
@@ -110,6 +110,8 @@ function Pin({ color, bike }: { color: string; bike?: boolean }) {
 
 export interface LiveMapHandle {
   recenter: () => void; // re-frame the map on the user / trip after the user pans
+  zoomIn: () => void;
+  zoomOut: () => void;
 }
 
 interface LiveMapProps {
@@ -128,6 +130,7 @@ interface LiveMapProps {
   navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
   hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
   heading?: number; // driver's course (deg) to orient the vehicle marker
+  onMapTap?: () => void; // a tap on the map (used to reveal the zoom controls)
 }
 
 const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
@@ -145,6 +148,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
   hidePoi,
   heading,
   centerOnUser,
+  onMapTap,
 }, ref) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
@@ -152,7 +156,15 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
     mode === 'route' ? (driver ?? [(p[0] + d[0]) / 2, (p[1] + d[1]) / 2]) : ACCRA;
 
   const camRef = React.useRef<CameraRef>(null);
+  const mapViewRef = React.useRef<MapRef>(null); // for reading the current zoom
   const userLocRef = React.useRef<[number, number] | null>(null); // latest GPS for recenter
+
+  // Step the zoom relative to the map's current level (for the +/− controls).
+  const zoomBy = async (delta: number) => {
+    let z = 14;
+    try { z = (await mapViewRef.current?.getZoom()) ?? 14; } catch { /* keep default */ }
+    camRef.current?.zoomTo(Math.max(3, Math.min(19, z + delta)), { duration: 250 });
+  };
 
   // Bounds framing pickup + destination (+ driver) so the whole trip is visible.
   const tripBounds = React.useCallback((): LngLatBounds | null => {
@@ -171,6 +183,8 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
       if (b) { camRef.current?.fitBounds(b, { duration: 500 }); return; }
       camRef.current?.flyTo({ center: userLocRef.current ?? driver ?? center, zoom: 15, duration: 500 });
     },
+    zoomIn: () => zoomBy(1),
+    zoomOut: () => zoomBy(-1),
   }));
 
   // When asked to hide POIs, swap in the fetched POI-free style once it resolves
@@ -218,7 +232,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
-      <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true}>
+      <Map ref={mapViewRef} style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true} onPress={onMapTap}>
         {follow && driver ? (
           // Turn-by-turn: keep the driver's vehicle centred, rotate the map to
           // their heading, tilted for a 3D nav view (like Uber/Google Maps).
