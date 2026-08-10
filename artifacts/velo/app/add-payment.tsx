@@ -125,9 +125,9 @@ export default function AddPaymentScreen() {
                 Your card details are entered on Paystack&apos;s secure checkout and never touch VELO.
                 Add a card by topping up your VELO Wallet — then pay for any ride from your balance.
               </Text>
-              <TouchableOpacity style={styles.saveBtn} onPress={() => router.replace('/wallet')} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.saveBtn, styles.cardBtn]} onPress={() => router.replace('/wallet')} activeOpacity={0.85}>
                 <Ionicons name="card" size={18} color="#000" />
-                <Text style={styles.saveBtnText}>Top up with card</Text>
+                <Text style={styles.saveBtnText} numberOfLines={1}>Top up with card</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -246,6 +246,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#131316', borderRadius: 16, borderWidth: 1, borderColor: '#27272A',
     padding: 20, gap: 10, alignItems: 'center',
   },
+  cardBtn: { alignSelf: 'stretch', paddingHorizontal: 20, marginTop: 4 },
   cardInfoIcon: {
     width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,208,0,0.12)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 2,
