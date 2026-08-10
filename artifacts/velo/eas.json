@@ -33,6 +33,10 @@
   },
   "submit": {
     "production": {
+      "ios": {
+        "appleId": "isarbah2015@gmail.com",
+        "appleTeamId": "NP5P8476JS"
+      },
       "android": {
         "track": "internal"
       }
