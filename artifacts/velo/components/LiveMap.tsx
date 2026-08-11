@@ -23,7 +23,8 @@ function VehicleSymbol({ id, coord, iconId, heading }: { id: string; coord: [num
         type="symbol"
         layout={{
           'icon-image': iconId,
-          'icon-size': 0.5,
+          // 360px source → keep the puck ~44pt on screen (Google-nav sized).
+          'icon-size': 0.12,
           'icon-rotate': heading ?? 0,
           'icon-rotation-alignment': 'map',
           'icon-pitch-alignment': 'map',
