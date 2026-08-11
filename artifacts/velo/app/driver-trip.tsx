@@ -411,6 +411,37 @@ export default function DriverTripScreen() {
     return target ? bearing(navPos, target) : 0;
   })();
 
+  // Demo/simulator movement: when there's no plausibly-nearby GPS fix (the iOS
+  // simulator sits in San Francisco, far from an Accra trip), walk a synthetic
+  // vehicle along the route polyline so the ride actually *moves* on screen.
+  // On a real device in-region this stays off and the live GPS drives the puck.
+  const gpsNear = !!(driverPos && target && distanceKm(driverPos, target) < 35);
+  const [simPos, setSimPos] = useState<LngLat | null>(null);
+  const [simHeading, setSimHeading] = useState(0);
+  useEffect(() => {
+    const coords = route?.coords;
+    const active = phase === 'toPickup' || phase === 'inProgress';
+    if (gpsNear || !active || !coords || coords.length < 2) {
+      setSimPos(null);
+      return;
+    }
+    let i = 0;
+    setSimPos(coords[0]);
+    const t = setInterval(() => {
+      const next = coords[Math.min(i + 1, coords.length - 1)];
+      const cur = coords[i];
+      if (next && (next[0] !== cur[0] || next[1] !== cur[1])) setSimHeading(bearing(cur, next));
+      i = Math.min(i + 1, coords.length - 1);
+      setSimPos(coords[i]);
+      if (i >= coords.length - 1) clearInterval(t);
+    }, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey, gpsNear, phase, route]);
+
+  const effDriver: LngLat | null = simPos ?? navPos;
+  const effHeading = simPos ? simHeading : navHeading;
+
   // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
   const enter = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -436,8 +467,8 @@ export default function DriverTripScreen() {
           mode="route"
           pickup={pickupLL}
           dest={destLL}
-          driver={navPos}
-          heading={navHeading}
+          driver={effDriver}
+          heading={effHeading}
           rider={riderPos}
           routeLine={route?.coords ?? null}
           follow={phase === 'toPickup' || phase === 'inProgress'}

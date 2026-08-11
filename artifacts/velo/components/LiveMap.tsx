@@ -2,9 +2,39 @@ import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, type CameraRef, type LngLatBounds, type MapRef } from '@maplibre/maplibre-react-native';
+import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, Images, type CameraRef, type LngLatBounds, type MapRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
+import { NAV_ICONS, type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
+
+// Register every nav icon with MapLibre so a SymbolLayer can stamp it onto the
+// map. Keyed by NavIconId ('arrow' | 'sport' | 'okada').
+const NAV_IMAGES: Record<string, number> = Object.fromEntries(NAV_ICONS.map((n) => [n.id, n.source]));
+
+// The moving vehicle drawn as a SymbolLayer instead of a Marker. A Marker is a
+// billboard — it always faces the screen, so on a tilted (pitch 55) nav camera
+// it stands upright and floats. A symbol with icon-pitch-alignment:'map' lies
+// flat on the tarmac and icon-rotation-alignment:'map' turns it with the map,
+// so it points down the road like Google/Yandex navigation.
+function VehicleSymbol({ id, coord, iconId, heading }: { id: string; coord: [number, number]; iconId: string; heading?: number }) {
+  return (
+    <GeoJSONSource id={`${id}Src`} data={{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: coord } }}>
+      <Layer
+        id={`${id}Sym`}
+        type="symbol"
+        layout={{
+          'icon-image': iconId,
+          'icon-size': 0.5,
+          'icon-rotate': heading ?? 0,
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'map',
+          'icon-anchor': 'center',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        }}
+      />
+    </GeoJSONSource>
+  );
+}
 
 // Coordinates are [longitude, latitude] for MapLibre.
 const ACCRA: [number, number] = [-0.187, 5.6037];
@@ -233,6 +263,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
       <Map ref={mapViewRef} style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true} onPress={onMapTap}>
+        <Images images={NAV_IMAGES} />
         {follow && driver ? (
           // Turn-by-turn: keep the driver's vehicle centred, rotate the map to
           // their heading, tilted for a 3D nav view (like Uber/Google Maps).
@@ -269,9 +300,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
             : null}
         </UserLocation>
         {centerOnUser && userLoc ? (
-          <Marker id="me" lngLat={userLoc}>
-            <NavPuck marker={navMarker ?? DEFAULT_NAV_MARKER} heading={heading} />
-          </Marker>
+          <VehicleSymbol id="me" coord={userLoc} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
         ) : null}
 
         {showDemand
@@ -322,9 +351,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
             {/* The driver's vehicle — their chosen icon, rotated to heading and
                 sitting on the road, exactly where the nav camera is centred. */}
             {driver ? (
-              <Marker id="driver" lngLat={driver}>
-                <NavPuck marker={navMarker ?? DEFAULT_NAV_MARKER} heading={heading} />
-              </Marker>
+              <VehicleSymbol id="driver" coord={driver} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
             ) : null}
           </>
         ) : (
