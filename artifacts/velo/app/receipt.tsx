@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Bounded from '@/components/Bounded';
 
 // Trip receipt shown after a completed ride (and re-openable from history).
 // Fare is broken down into a base fare + service fee that sum to the total,
@@ -38,6 +39,7 @@ export default function ReceiptScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 100 }}>
+       <Bounded>
         <View style={styles.hero}>
           <View style={styles.checkCircle}>
             <Ionicons name="checkmark" size={30} color="#000" />
@@ -81,6 +83,7 @@ export default function ReceiptScreen() {
             </View>
           )}
         </View>
+       </Bounded>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>

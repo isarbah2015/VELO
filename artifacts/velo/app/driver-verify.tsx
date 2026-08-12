@@ -11,6 +11,7 @@ import {
   DOC_FIELDS, type DocKey, type VerificationStatus,
   uploadVerificationImage, submitVerification, getVerification, isLicenseExpired,
 } from '@/services/verification';
+import Bounded from '@/components/Bounded';
 
 const STATUS_META: Record<VerificationStatus, { label: string; color: string; icon: any }> = {
   unverified: { label: 'Not verified', color: '#71717A', icon: 'shield-outline' },
@@ -141,6 +142,7 @@ export default function DriverVerifyScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120 }}>
+       <Bounded>
         <View style={[styles.statusChip, { borderColor: meta.color }]}>
           <Ionicons name={meta.icon} size={18} color={meta.color} />
           <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
@@ -265,6 +267,7 @@ export default function DriverVerifyScreen() {
             autoCapitalize="words"
           />
         </View>
+       </Bounded>
       </ScrollView>
 
       {!locked && (
