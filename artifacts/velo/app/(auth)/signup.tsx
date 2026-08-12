@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp, type Role } from '@/context/AppContext';
+import Bounded from '@/components/Bounded';
 import AnimatedLogo from '@/components/AnimatedLogo';
 
 export default function SignupScreen() {
@@ -77,6 +78,7 @@ export default function SignupScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+         <Bounded>
           {/* Back — return to the previous screen (welcome), or sign-in if there
               is no history to go back to. */}
           <TouchableOpacity
@@ -235,6 +237,7 @@ export default function SignupScreen() {
               <Text style={styles.footerLink}> Sign In</Text>
             </TouchableOpacity>
           </View>
+         </Bounded>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

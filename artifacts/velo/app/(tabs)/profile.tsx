@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
+import Bounded from '@/components/Bounded';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
 import { NAV_ICONS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
@@ -181,6 +182,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: tabBarH + 16 }}
       >
+       <Bounded>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Profile</Text>
@@ -435,6 +437,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         <Text style={styles.version}>VELO v1.0.0 · Made in Ghana 🇬🇭</Text>
+       </Bounded>
       </ScrollView>
     </View>
   );

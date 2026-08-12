@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import Bounded from '@/components/Bounded';
 import { useGoogleSignIn, googleConfigured } from '@/services/googleAuth';
 
 // Isolated so useGoogleSignIn() only runs when Google is configured for this
@@ -134,6 +135,7 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+         <Bounded>
           {/* Logo */}
           <View style={styles.logoSection}>
             <Image
@@ -244,6 +246,7 @@ export default function LoginScreen() {
               </View>
             )}
           </View>
+         </Bounded>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

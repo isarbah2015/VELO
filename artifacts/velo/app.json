@@ -9,7 +9,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.velo.ridehailing",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
