@@ -238,7 +238,7 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser navMarker={navMarker} onMapTap={revealMapCtrl} />
+        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser selfDot navMarker={navMarker} onMapTap={revealMapCtrl} />
       </View>
 
       {/* Tap-to-reveal zoom + recenter controls (right side, auto-hiding). */}

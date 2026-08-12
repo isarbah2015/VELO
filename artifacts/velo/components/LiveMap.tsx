@@ -130,6 +130,26 @@ function NavPuck({ marker, heading }: { marker?: NavMarker; heading?: number }) 
   );
 }
 
+// A rider/passenger is a person waiting, not a vehicle — so their own position
+// is a standard blue GPS dot (white ring + accuracy halo), like every maps app.
+function LocationDot() {
+  return (
+    <View style={DOT_STYLES.wrap} pointerEvents="none">
+      <View style={DOT_STYLES.halo} />
+      <View style={DOT_STYLES.ring}>
+        <View style={DOT_STYLES.core} />
+      </View>
+    </View>
+  );
+}
+
+const DOT_STYLES = StyleSheet.create({
+  wrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  halo: { position: 'absolute', width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(77,166,255,0.18)' },
+  ring: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  core: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#1E88FF' },
+});
+
 function Pin({ color, bike }: { color: string; bike?: boolean }) {
   return (
     <View style={styles.pinWrap}>
@@ -161,6 +181,7 @@ interface LiveMapProps {
   navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
   hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
   heading?: number; // driver's course (deg) to orient the vehicle marker
+  selfDot?: boolean; // draw the user as a plain GPS location dot, not a bike
   onMapTap?: () => void; // a tap on the map (used to reveal the zoom controls)
 }
 
@@ -179,6 +200,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
   hidePoi,
   heading,
   centerOnUser,
+  selfDot,
   onMapTap,
 }, ref) {
   const p = pickup ?? PICKUP;
@@ -301,7 +323,13 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
             : null}
         </UserLocation>
         {centerOnUser && userLoc ? (
-          <VehicleSymbol id="me" coord={userLoc} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
+          selfDot ? (
+            <Marker id="me" lngLat={userLoc}>
+              <LocationDot />
+            </Marker>
+          ) : (
+            <VehicleSymbol id="me" coord={userLoc} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
+          )
         ) : null}
 
         {showDemand
