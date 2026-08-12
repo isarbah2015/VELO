@@ -228,22 +228,17 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Social — only mounts the Google hook when configured for this
-                platform, otherwise the provider throws at render. */}
-            {googleConfigured() ? (
-              <GoogleAuthButton onError={setError} onSuccess={() => router.replace('/')} />
-            ) : (
-              <View style={[styles.socialBtn, { opacity: 0.5 }]}>
-                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-                <Text style={styles.socialBtnText}>Google sign-in coming soon</Text>
-              </View>
+            {/* Google sign-in — only shown when actually configured for this
+                platform; hidden entirely otherwise (no "coming soon" stub). */}
+            {googleConfigured() && (
+              <>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+                <GoogleAuthButton onError={setError} onSuccess={() => router.replace('/')} />
+              </>
             )}
           </View>
          </Bounded>
