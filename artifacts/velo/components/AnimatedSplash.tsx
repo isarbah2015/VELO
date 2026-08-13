@@ -6,6 +6,13 @@ import * as SplashScreen from 'expo-splash-screen';
 
 const { width, height } = Dimensions.get('window');
 
+// Timestamp of the last time the branded spin actually started. If this
+// component remounts within a few seconds (React 19 / the compiler can mount it
+// more than once during bootstrap), we DON'T replay the spin — that was the
+// "logo spins twice" bug. A genuine relaunch is always far enough apart, so the
+// animation still plays fresh every real launch.
+let lastPlayedAt = 0;
+
 // One drifting aurora blob — a big blurred radial-gradient that slowly floats,
 // giving the northern-lights wash behind the logo.
 function AuroraBlob({ color, size, from, to, duration }: {
@@ -24,12 +31,12 @@ function AuroraBlob({ color, size, from, to, duration }: {
   const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [from.y, to.y] });
   const gid = useMemo(() => `aurora-${Math.random().toString(36).slice(2)}`, []);
   return (
-    <Animated.View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, opacity: 0.7, transform: [{ translateX }, { translateY }] }}>
+    <Animated.View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, opacity: 0.32, transform: [{ translateX }, { translateY }] }}>
       <Svg width={size} height={size}>
         <Defs>
           <RadialGradient id={gid} cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.95} />
-            <Stop offset="45%" stopColor={color} stopOpacity={0.3} />
+            <Stop offset="0%" stopColor={color} stopOpacity={0.6} />
+            <Stop offset="42%" stopColor={color} stopOpacity={0.14} />
             <Stop offset="100%" stopColor={color} stopOpacity={0} />
           </RadialGradient>
         </Defs>
@@ -53,7 +60,7 @@ function LightTrail({ y, angle, color, thickness, duration, delay }: {
   }, [t, duration, delay]);
   const w = width * 1.5;
   const translateX = t.interpolate({ inputRange: [0, 1], outputRange: [-w, width + w * 0.3] });
-  const opacity = t.interpolate({ inputRange: [0, 0.12, 0.5, 0.88, 1], outputRange: [0, 0.55, 0.65, 0.55, 0] });
+  const opacity = t.interpolate({ inputRange: [0, 0.12, 0.5, 0.88, 1], outputRange: [0, 0.32, 0.4, 0.32, 0] });
   return (
     <Animated.View
       pointerEvents="none"
@@ -95,13 +102,12 @@ function Particle({ index }: { index: number }) {
   );
 }
 
+// A few near-parallel streaks (all leaning the same way) so they read as clean
+// motion lines rather than a conflicting crosshatch.
 const TRAILS: { y: number; angle: number; color: string; thickness: number; duration: number; delay: number }[] = [
-  { y: height * 0.30, angle: -14, color: '#FFD000', thickness: 3, duration: 3200, delay: 0 },
-  { y: height * 0.42, angle: -8, color: '#22D3EE', thickness: 2, duration: 3800, delay: 700 },
-  { y: height * 0.55, angle: 10, color: '#FFFFFF', thickness: 2.5, duration: 3000, delay: 1400 },
-  { y: height * 0.62, angle: 16, color: '#A78BFA', thickness: 2, duration: 4200, delay: 500 },
-  { y: height * 0.70, angle: 6, color: '#FF6B6B', thickness: 2, duration: 3600, delay: 2100 },
-  { y: height * 0.36, angle: -20, color: '#FFFFFF', thickness: 1.5, duration: 4600, delay: 1800 },
+  { y: height * 0.28, angle: -13, color: '#FFD000', thickness: 2.5, duration: 3600, delay: 0 },
+  { y: height * 0.44, angle: -13, color: '#FFFFFF', thickness: 1.5, duration: 4200, delay: 1200 },
+  { y: height * 0.66, angle: -13, color: '#FFD000', thickness: 2, duration: 3900, delay: 2200 },
 ];
 
 // Aurora + light-trail splash: the V-wing logo spins up once and settles over a
@@ -119,6 +125,14 @@ export default function AnimatedSplash({ onDone, dismiss, onHidden }: {
   onDoneRef.current = onDone;
 
   useEffect(() => {
+    // Remount within the same launch → don't replay the spin (fixes double-spin).
+    if (Date.now() - lastPlayedAt < 6000) {
+      spin.setValue(3); wordmark.setValue(1);
+      const t = setTimeout(() => onDoneRef.current(), 0);
+      return () => clearTimeout(t);
+    }
+    lastPlayedAt = Date.now();
+
     Animated.timing(spin, { toValue: 3, duration: 2400, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     Animated.loop(
       Animated.sequence([
