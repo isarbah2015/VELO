@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import LiveMap from '@/components/LiveMap';
-import { getRoute, type LngLat, type RouteResult } from '@/services/geo';
+import { getRoute, distanceKm as haversineKm, type LngLat, type RouteResult } from '@/services/geo';
 
 const { width } = Dimensions.get('window');
 
@@ -43,10 +43,16 @@ export default function RideDetailScreen() {
     );
   }
 
+  // Prefer the driver's actual recorded GPS trail (breadcrumbs) when it exists;
+  // otherwise fall back to the road route between pickup and drop-off.
+  const trail: LngLat[] | null = ride.path && ride.path.length > 1
+    ? ride.path.map((p) => [p.lng, p.lat] as LngLat)
+    : route?.coords ?? null;
+
   const total = ride.price;
   const serviceFee = Math.round(total * 0.12 * 100) / 100;
   const baseFare = Math.round((total - serviceFee) * 100) / 100;
-  const distanceKm = route?.distanceKm;
+  const distKm = route?.distanceKm ?? (pickup && drop ? haversineKm(pickup, drop) : undefined);
   const dateStr = new Date(ride.date).toLocaleString('en-GH', { dateStyle: 'medium', timeStyle: 'short' });
   const mapH = Dimensions.get('window').height * 0.46;
 
@@ -62,7 +68,7 @@ export default function RideDetailScreen() {
           mode="route"
           pickup={pickup ?? undefined}
           dest={drop ?? undefined}
-          routeLine={route?.coords ?? null}
+          routeLine={trail}
         />
         <View style={styles.mapDim} pointerEvents="none" />
       </View>
@@ -99,7 +105,7 @@ export default function RideDetailScreen() {
           <Row label="Driver" value={`${ride.driverName ?? 'VELO driver'}`} />
           <Row label="Driver rating" value={`★ ${ride.driverRating ?? 5}`} />
           <Row label="Duration" value={`${ride.durationMin} min`} />
-          <Row label="Distance" value={distanceKm != null ? `${distanceKm.toFixed(1)} km` : '—'} />
+          <Row label="Distance" value={distKm != null ? `${distKm.toFixed(1)} km` : '—'} />
           {ride.rating ? (
             <View style={styles.stars}>
               <Text style={styles.rowLabel}>Your rating</Text>

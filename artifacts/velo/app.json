@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "com.velo.ridehailing",
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#09090B"
@@ -39,6 +40,7 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "./plugins/withResizeable.js",
       [
         "expo-splash-screen",
         {

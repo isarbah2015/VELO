@@ -9,7 +9,7 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
-import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
+import { updateDriverLocation, updateRideStatus, watchRide, saveRidePath } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
 import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
 import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
@@ -71,6 +71,7 @@ export default function DriverTripScreen() {
   const startRef = useRef(0); // trip start (inProgress)
   const arrivedRef = useRef(0); // arrived-at-pickup time
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const trailRef = useRef<{ lat: number; lng: number }[]>([]); // driver's GPS breadcrumbs
 
   // 1s ticker drives the wait timer (Stage 3) and elapsed time (Stage 4).
   useEffect(() => {
@@ -129,6 +130,7 @@ export default function DriverTripScreen() {
           (loc) => {
             setDriverPos([loc.coords.longitude, loc.coords.latitude]);
             updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude);
+            trailRef.current.push({ lat: loc.coords.latitude, lng: loc.coords.longitude });
           }
         );
       } catch {
@@ -234,6 +236,9 @@ export default function DriverTripScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const durationMin = Math.max(1, Math.round((Date.now() - startRef.current) / 60000));
     watchRef.current?.remove();
+    // Persist the travelled trail so the completed trip can redraw the real
+    // route the driver took (best-effort; empty on a no-GPS simulator run).
+    try { await saveRidePath(rideId, trailRef.current); } catch { /* non-critical */ }
     await safeStatus('completed', { durationMin });
     try {
       if (user) {

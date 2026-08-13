@@ -76,6 +76,14 @@ export async function updateRiderLocation(rideId: string, lat: number, lng: numb
   await updateDoc(doc(db, 'rides', rideId), { riderLoc: { lat, lng, at: Date.now() } });
 }
 
+// Persist the driver's travelled GPS breadcrumb trail on the ride. Written as
+// the whole array (a ride's trail is bounded) at phase changes + completion,
+// so a finished trip can redraw the actual route the driver took.
+export async function saveRidePath(rideId: string, path: { lat: number; lng: number }[]) {
+  if (path.length < 2) return;
+  await updateDoc(doc(db, 'rides', rideId), { path });
+}
+
 export function watchRide(rideId: string, callback: (ride: Ride | null) => void): Unsubscribe {
   return onSnapshot(
     doc(db, 'rides', rideId),

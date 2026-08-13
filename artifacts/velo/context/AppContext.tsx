@@ -41,6 +41,9 @@ export interface Ride {
   vehicle?: { plate: string; model: string; color: string } | null;
   // Live driver position, streamed to Firestore during an active trip.
   driverLoc?: { lat: number; lng: number; at: number } | null;
+  // Breadcrumb GPS trail the driver actually travelled (pickup → drop-off),
+  // recorded during the trip so a completed ride can redraw the real route.
+  path?: { lat: number; lng: number }[];
   // Rider's star rating of the completed trip (1–5).
   rating?: number;
   // ISO datetime when a ride is booked for later; absent for on-demand rides.
