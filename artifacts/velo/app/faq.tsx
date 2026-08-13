@@ -36,7 +36,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: 'What are loyalty tiers?',
-    a: 'Riders climb Bronze → Silver → Gold as they complete trips. Silver unlocks 5% off fares and Gold unlocks 10% off, applied automatically. You can see your progress on the Profile screen.',
+    a: 'Passengers climb Bronze → Silver → Gold as they complete trips. Silver unlocks 5% off fares and Gold unlocks 10% off, applied automatically. You can see your progress on the Profile screen.',
   },
   {
     q: 'How do I get referral rewards?',

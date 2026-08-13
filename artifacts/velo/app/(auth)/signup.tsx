@@ -96,7 +96,7 @@ export default function SignupScreen() {
               <Text style={styles.logo}>VELO</Text>
             </View>
             <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join thousands of riders in Ghana</Text>
+            <Text style={styles.subtitle}>Join thousands of passengers in Ghana</Text>
           </View>
 
           {/* Form */}

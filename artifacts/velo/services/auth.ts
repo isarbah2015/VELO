@@ -71,7 +71,7 @@ export async function ensureGoogleProfile(user: FirebaseUser): Promise<void> {
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
   if (snap.exists()) return;
-  const name = user.displayName || user.email?.split('@')[0] || 'VELO Rider';
+  const name = user.displayName || user.email?.split('@')[0] || 'VELO Passenger';
   await setDoc(ref, {
     name,
     phone: '',

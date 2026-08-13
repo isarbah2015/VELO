@@ -70,7 +70,10 @@ const buildMenuSections = (langLbl: string): { title: string; items: MenuItem[] 
   },
 ];
 
-const ROLE_LABEL: Record<Role, string> = { rider: 'Rider', driver: 'Driver' };
+// In Ghana the person operating the okada is the "rider"/driver, so the
+// customer booking a trip is labelled "Passenger" throughout the UI (the app's
+// internal role key stays 'rider').
+const ROLE_LABEL: Record<Role, string> = { rider: 'Passenger', driver: 'Driver' };
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -205,7 +208,7 @@ export default function ProfileScreen() {
             </View>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName} numberOfLines={1}>{user?.name ?? 'Rider'}</Text>
+            <Text style={styles.userName} numberOfLines={1}>{user?.name ?? 'Passenger'}</Text>
             <Text style={styles.userPhone} numberOfLines={1}>+233 {user?.phone ?? ''}</Text>
             <View style={styles.veloTag}>
               <Ionicons name="shield-checkmark" size={12} color="#FFD000" />

@@ -19,9 +19,9 @@ export function tierForRides(completedRides: number): TierInfo {
     return { tier: 'Bossu', label: 'Velo Okada Bossu', color: '#FFD000', next: null, ridesToNext: null, perk: 'Priority matching + 10% off' };
   }
   if (completedRides >= 10) {
-    return { tier: 'Premium', label: 'Premium Rider', color: '#A78BFA', next: 'Bossu', ridesToNext: 50 - completedRides, perk: 'Faster matching + 5% off' };
+    return { tier: 'Premium', label: 'Premium Passenger', color: '#A78BFA', next: 'Bossu', ridesToNext: 50 - completedRides, perk: 'Faster matching + 5% off' };
   }
-  return { tier: 'Standard', label: 'Standard Rider', color: '#71717A', next: 'Premium', ridesToNext: 10 - completedRides, perk: 'Standard fares' };
+  return { tier: 'Standard', label: 'Standard Passenger', color: '#71717A', next: 'Premium', ridesToNext: 10 - completedRides, perk: 'Standard fares' };
 }
 
 // A short, shareable, human-readable code derived from the user's name +

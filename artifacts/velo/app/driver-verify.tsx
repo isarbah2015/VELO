@@ -150,8 +150,8 @@ export default function DriverVerifyScreen() {
 
         <Text style={styles.intro}>
           Photograph your Ghana Card, your rider's licence (front & back), all four sides of your
-          motorcycle, and take a live selfie (camera only). Riders only ride with verified, licensed
-          drivers.
+          motorcycle, and take a live selfie (camera only). Passengers only ride with verified,
+          licensed drivers.
         </Text>
 
         {/* Live selfie — front camera, for face-matching against the ID + licence. */}

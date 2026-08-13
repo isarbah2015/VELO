@@ -187,7 +187,7 @@ export default function TrackingScreen() {
   const handleSOS = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     const { message } = await triggerSOS({
-      rideId, userId: user?.uid ?? '', userName: user?.name ?? 'Rider', role: 'rider', from, to,
+      rideId, userId: user?.uid ?? '', userName: user?.name ?? 'Passenger', role: 'rider', from, to,
     });
     Alert.alert(
       'Emergency SOS',

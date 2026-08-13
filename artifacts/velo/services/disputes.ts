@@ -17,7 +17,7 @@ export const DISPUTE_CATEGORIES: { id: DisputeCategory; label: string; icon: str
   { id: 'payment', label: 'Payment issue', icon: 'card-outline' },
   { id: 'safety', label: 'Safety concern', icon: 'shield-outline' },
   { id: 'driver_conduct', label: 'Driver behaviour', icon: 'person-outline', forRole: 'rider' },
-  { id: 'rider_conduct', label: 'Rider behaviour', icon: 'person-outline', forRole: 'driver' },
+  { id: 'rider_conduct', label: 'Passenger behaviour', icon: 'person-outline', forRole: 'driver' },
   { id: 'route', label: 'Wrong route / detour', icon: 'navigate-outline' },
   { id: 'other', label: 'Something else', icon: 'ellipsis-horizontal' },
 ];
