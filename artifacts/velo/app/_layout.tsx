@@ -98,6 +98,7 @@ function RootLayoutNav() {
       <Stack.Screen name="driver-trip" />
       <Stack.Screen name="chat" />
       <Stack.Screen name="receipt" />
+      <Stack.Screen name="ride-detail" />
       <Stack.Screen name="driver-verify" />
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="faq" />
