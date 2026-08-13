@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -30,13 +31,24 @@ const queryClient = new QueryClient();
 function Bootstrap() {
   const { authInitialized } = useApp();
   const [animDone, setAnimDone] = useState(false);
-  const ready = authInitialized && animDone;
+  const [splashGone, setSplashGone] = useState(false);
+  // Mount the app as soon as auth is known (under the splash) so the first
+  // screen is fully painted before the splash dissolves — no post-splash
+  // flash. The splash then crossfades out once BOTH auth + the branded
+  // animation are done, and unmounts itself.
+  const dismiss = authInitialized && animDone;
 
   return (
-    <>
-      {!ready && <AnimatedSplash onDone={() => setAnimDone(true)} />}
-      {ready && <RootLayoutNav />}
-    </>
+    <View style={{ flex: 1, backgroundColor: '#09090B' }}>
+      {authInitialized && <RootLayoutNav />}
+      {!splashGone && (
+        <AnimatedSplash
+          onDone={() => setAnimDone(true)}
+          dismiss={dismiss}
+          onHidden={() => setSplashGone(true)}
+        />
+      )}
+    </View>
   );
 }
 
