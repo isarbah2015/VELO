@@ -24,12 +24,12 @@ function AuroraBlob({ color, size, from, to, duration }: {
   const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [from.y, to.y] });
   const gid = useMemo(() => `aurora-${Math.random().toString(36).slice(2)}`, []);
   return (
-    <Animated.View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, opacity: 0.5, transform: [{ translateX }, { translateY }] }}>
+    <Animated.View pointerEvents="none" style={{ position: 'absolute', width: size, height: size, opacity: 0.7, transform: [{ translateX }, { translateY }] }}>
       <Svg width={size} height={size}>
         <Defs>
           <RadialGradient id={gid} cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.8} />
-            <Stop offset="55%" stopColor={color} stopOpacity={0.16} />
+            <Stop offset="0%" stopColor={color} stopOpacity={0.95} />
+            <Stop offset="45%" stopColor={color} stopOpacity={0.3} />
             <Stop offset="100%" stopColor={color} stopOpacity={0} />
           </RadialGradient>
         </Defs>
@@ -53,7 +53,7 @@ function LightTrail({ y, angle, color, thickness, duration, delay }: {
   }, [t, duration, delay]);
   const w = width * 1.5;
   const translateX = t.interpolate({ inputRange: [0, 1], outputRange: [-w, width + w * 0.3] });
-  const opacity = t.interpolate({ inputRange: [0, 0.12, 0.5, 0.88, 1], outputRange: [0, 0.42, 0.5, 0.42, 0] });
+  const opacity = t.interpolate({ inputRange: [0, 0.12, 0.5, 0.88, 1], outputRange: [0, 0.55, 0.65, 0.55, 0] });
   return (
     <Animated.View
       pointerEvents="none"
@@ -156,9 +156,9 @@ export default function AnimatedSplash({ onDone, dismiss, onHidden }: {
       </Svg>
 
       {/* aurora wash */}
-      <AuroraBlob color="#FFD000" size={width * 1.2} from={{ x: -width * 0.35, y: -height * 0.15 }} to={{ x: -width * 0.1, y: height * 0.05 }} duration={6000} />
-      <AuroraBlob color="#7C3AED" size={width * 1.1} from={{ x: width * 0.35, y: height * 0.05 }} to={{ x: width * 0.15, y: height * 0.25 }} duration={7200} />
-      <AuroraBlob color="#22D3EE" size={width * 0.95} from={{ x: width * 0.05, y: height * 0.5 }} to={{ x: width * 0.3, y: height * 0.65 }} duration={8000} />
+      <AuroraBlob color="#FFD000" size={width * 1.0} from={{ x: -width * 0.15, y: height * 0.10 }} to={{ x: width * 0.02, y: height * 0.22 }} duration={6000} />
+      <AuroraBlob color="#7C3AED" size={width * 0.9} from={{ x: width * 0.2, y: height * 0.40 }} to={{ x: width * 0.35, y: height * 0.52 }} duration={7200} />
+      <AuroraBlob color="#22D3EE" size={width * 0.85} from={{ x: -width * 0.12, y: height * 0.5 }} to={{ x: width * 0.05, y: height * 0.62 }} duration={8000} />
 
       {/* long-exposure light trails */}
       {TRAILS.map((t, i) => <LightTrail key={i} {...t} />)}
