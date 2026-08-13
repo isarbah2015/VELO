@@ -6,11 +6,6 @@ import * as SplashScreen from 'expo-splash-screen';
 
 const { width, height } = Dimensions.get('window');
 
-// Guarantees the branded splash animation plays exactly ONCE per app launch.
-// React 19 + the React Compiler can mount this component more than once during
-// bootstrap; without this the logo would spin, then spin again.
-let hasPlayed = false;
-
 // One drifting aurora blob — a big blurred radial-gradient that slowly floats,
 // giving the northern-lights wash behind the logo.
 function AuroraBlob({ color, size, from, to, duration }: {
@@ -124,13 +119,6 @@ export default function AnimatedSplash({ onDone, dismiss, onHidden }: {
   onDoneRef.current = onDone;
 
   useEffect(() => {
-    if (hasPlayed) {
-      spin.setValue(3); wordmark.setValue(1);
-      const t = setTimeout(() => onDoneRef.current(), 0);
-      return () => clearTimeout(t);
-    }
-    hasPlayed = true;
-
     Animated.timing(spin, { toValue: 3, duration: 2400, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     Animated.loop(
       Animated.sequence([
