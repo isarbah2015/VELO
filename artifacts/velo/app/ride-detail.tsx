@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import LiveMap from '@/components/LiveMap';
-import { getRoute, distanceKm as haversineKm, type LngLat, type RouteResult } from '@/services/geo';
+import { getRoute, geocode, distanceKm as haversineKm, type LngLat, type RouteResult } from '@/services/geo';
 
 const { width } = Dimensions.get('window');
 
@@ -19,8 +19,17 @@ export default function RideDetailScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const ride = useMemo(() => rides.find((r) => r.id === rideId), [rides, rideId]);
 
-  const pickup: LngLat | null = ride?.fromCoord ? [ride.fromCoord.lng, ride.fromCoord.lat] : null;
-  const drop: LngLat | null = ride?.toCoord ? [ride.toCoord.lng, ride.toCoord.lat] : null;
+  // Endpoints: use the ride's stored coords, else geocode the address strings
+  // (covers legacy/seed rides created before coords were saved).
+  const [pickup, setPickup] = useState<LngLat | null>(ride?.fromCoord ? [ride.fromCoord.lng, ride.fromCoord.lat] : null);
+  const [drop, setDrop] = useState<LngLat | null>(ride?.toCoord ? [ride.toCoord.lng, ride.toCoord.lat] : null);
+  useEffect(() => {
+    if (!ride) return;
+    let alive = true;
+    if (!ride.fromCoord && ride.from) geocode(ride.from).then((c) => { if (alive && c) setPickup(c); });
+    if (!ride.toCoord && ride.to) geocode(ride.to).then((c) => { if (alive && c) setDrop(c); });
+    return () => { alive = false; };
+  }, [ride?.id]);
 
   const [route, setRoute] = useState<RouteResult | null>(null);
   useEffect(() => {
