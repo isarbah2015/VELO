@@ -1,9 +1,41 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
-import { type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
+import { Camera, Map, Marker, UserLocation, GeoJSONSource, Layer, Images, type CameraRef, type LngLatBounds, type MapRef } from '@maplibre/maplibre-react-native';
+import * as Location from 'expo-location';
+import { NAV_ICONS, type NavMarker, navIcon, DEFAULT_NAV_MARKER } from '@/services/navMarker';
+
+// Register every nav icon with MapLibre so a SymbolLayer can stamp it onto the
+// map. Keyed by NavIconId ('arrow' | 'sport' | 'okada').
+const NAV_IMAGES: Record<string, number> = Object.fromEntries(NAV_ICONS.map((n) => [n.id, n.source]));
+
+// The moving vehicle drawn as a SymbolLayer instead of a Marker. A Marker is a
+// billboard — it always faces the screen, so on a tilted (pitch 55) nav camera
+// it stands upright and floats. A symbol with icon-pitch-alignment:'map' lies
+// flat on the tarmac and icon-rotation-alignment:'map' turns it with the map,
+// so it points down the road like Google/Yandex navigation.
+function VehicleSymbol({ id, coord, iconId, heading }: { id: string; coord: [number, number]; iconId: string; heading?: number }) {
+  return (
+    <GeoJSONSource id={`${id}Src`} data={{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: coord } }}>
+      <Layer
+        id={`${id}Sym`}
+        type="symbol"
+        layout={{
+          'icon-image': iconId,
+          // 360px source → keep the puck ~44pt on screen (Google-nav sized).
+          'icon-size': 0.12,
+          'icon-rotate': heading ?? 0,
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'map',
+          'icon-anchor': 'center',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        }}
+      />
+    </GeoJSONSource>
+  );
+}
 
 // Coordinates are [longitude, latitude] for MapLibre.
 const ACCRA: [number, number] = [-0.187, 5.6037];
@@ -83,26 +115,40 @@ function HeatBlob({ intensity, index }: { intensity: number; index: number }) {
   );
 }
 
-// The driver's own follow puck — their chosen icon + colour, in a rounded chip
-// with a heading beam, sitting on the driver's position and rotated to their
-// direction of travel (like the Uber/Google Maps vehicle chevron).
-function NavPuck({ marker, heading }: { marker: NavMarker; heading?: number }) {
-  const ic = navIcon(marker.icon);
-  const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
-  const dark = marker.color === '#FFFFFF' || marker.color === '#FFD000';
+// The driver's own follow puck — a premium top-down PNG marker (pro arrow or a
+// motorbike) that rotates to the heading (direction of travel).
+function NavPuck({ marker, heading }: { marker?: NavMarker; heading?: number }) {
+  const source = navIcon(marker?.icon ?? DEFAULT_NAV_MARKER.icon).source;
   return (
     <View style={styles.puckWrap} pointerEvents="none">
-      {/* directional beam sweeping ahead of the vehicle */}
-      <View style={[styles.puckBeamWrap, heading != null && { transform: [{ rotate: `${heading}deg` }] }]}>
-        <View style={[styles.puckBeam, { borderBottomColor: marker.color }]} />
-      </View>
-      <View style={[styles.puckHalo, { backgroundColor: marker.color }]} />
-      <View style={[styles.puck, { backgroundColor: marker.color }]}>
-        <Family name={ic.name as any} size={20} color={dark ? '#000' : '#FFFFFF'} />
+      <Image
+        source={source}
+        style={[styles.navArrow, heading != null ? { transform: [{ rotate: `${heading}deg` }] } : null]}
+        resizeMode="contain"
+      />
+    </View>
+  );
+}
+
+// A rider/passenger is a person waiting, not a vehicle — so their own position
+// is a standard blue GPS dot (white ring + accuracy halo), like every maps app.
+function LocationDot() {
+  return (
+    <View style={DOT_STYLES.wrap} pointerEvents="none">
+      <View style={DOT_STYLES.halo} />
+      <View style={DOT_STYLES.ring}>
+        <View style={DOT_STYLES.core} />
       </View>
     </View>
   );
 }
+
+const DOT_STYLES = StyleSheet.create({
+  wrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  halo: { position: 'absolute', width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(77,166,255,0.18)' },
+  ring: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  core: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#1E88FF' },
+});
 
 function Pin({ color, bike }: { color: string; bike?: boolean }) {
   return (
@@ -113,7 +159,33 @@ function Pin({ color, bike }: { color: string; bike?: boolean }) {
   );
 }
 
-export default function LiveMap({
+export interface LiveMapHandle {
+  recenter: () => void; // re-frame the map on the user / trip after the user pans
+  zoomIn: () => void;
+  zoomOut: () => void;
+}
+
+interface LiveMapProps {
+  width: number;
+  height: number;
+  mode: 'route' | 'nearby';
+  centerOnUser?: boolean; // on the home maps: recenter on and mark the user's GPS location
+  // Optional real coordinates ([lng, lat]); default to the Accra demo route.
+  pickup?: [number, number];
+  dest?: [number, number];
+  driver?: [number, number] | null; // live driver position (bike marker)
+  rider?: [number, number] | null; // live rider position at pickup
+  routeLine?: [number, number][] | null; // road-following navigation polyline
+  showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
+  follow?: boolean; // turn-by-turn camera that follows the driver with heading
+  navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
+  hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
+  heading?: number; // driver's course (deg) to orient the vehicle marker
+  selfDot?: boolean; // draw the user as a plain GPS location dot, not a bike
+  onMapTap?: () => void; // a tap on the map (used to reveal the zoom controls)
+}
+
+const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
   width,
   height,
   mode,
@@ -127,26 +199,46 @@ export default function LiveMap({
   navMarker,
   hidePoi,
   heading,
-}: {
-  width: number;
-  height: number;
-  mode: 'route' | 'nearby';
-  // Optional real coordinates ([lng, lat]); default to the Accra demo route.
-  pickup?: [number, number];
-  dest?: [number, number];
-  driver?: [number, number] | null; // live driver position (bike marker)
-  rider?: [number, number] | null; // live rider position at pickup
-  routeLine?: [number, number][] | null; // road-following navigation polyline
-  showDemand?: boolean; // overlay the rider-demand heatmap (driver view)
-  follow?: boolean; // turn-by-turn camera that follows the driver with heading
-  navMarker?: NavMarker; // driver's chosen follow-puck icon/colour
-  hidePoi?: boolean; // strip POI labels for a distraction-free in-trip view
-  heading?: number; // driver's course (deg) to orient the vehicle marker
-}) {
+  centerOnUser,
+  selfDot,
+  onMapTap,
+}, ref) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
   const center: [number, number] =
     mode === 'route' ? (driver ?? [(p[0] + d[0]) / 2, (p[1] + d[1]) / 2]) : ACCRA;
+
+  const camRef = React.useRef<CameraRef>(null);
+  const mapViewRef = React.useRef<MapRef>(null); // for reading the current zoom
+  const userLocRef = React.useRef<[number, number] | null>(null); // latest GPS for recenter
+
+  // Step the zoom relative to the map's current level (for the +/− controls).
+  const zoomBy = async (delta: number) => {
+    let z = 14;
+    try { z = (await mapViewRef.current?.getZoom()) ?? 14; } catch { /* keep default */ }
+    camRef.current?.zoomTo(Math.max(3, Math.min(19, z + delta)), { duration: 250 });
+  };
+
+  // Bounds framing pickup + destination (+ driver) so the whole trip is visible.
+  const tripBounds = React.useCallback((): LngLatBounds | null => {
+    if (!pickup || !dest) return null;
+    const pts = driver ? [pickup, dest, driver] : [pickup, dest];
+    const lngs = pts.map((x) => x[0]);
+    const lats = pts.map((x) => x[1]);
+    return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  }, [pickup, dest, driver]);
+
+  // Recenter control: re-fit the trip if one's in view, otherwise fly back to
+  // the user's location (used by the floating "locate" button after a pan).
+  React.useImperativeHandle(ref, () => ({
+    recenter: () => {
+      const b = !follow && !centerOnUser ? tripBounds() : null;
+      if (b) { camRef.current?.fitBounds(b, { duration: 500 }); return; }
+      camRef.current?.flyTo({ center: userLocRef.current ?? driver ?? center, zoom: 15, duration: 500 });
+    },
+    zoomIn: () => zoomBy(1),
+    zoomOut: () => zoomBy(-1),
+  }));
 
   // When asked to hide POIs, swap in the fetched POI-free style once it resolves
   // (until then, the plain style renders so the map never blanks out).
@@ -158,13 +250,48 @@ export default function LiveMap({
     return () => { alive = false; };
   }, [hidePoi]);
 
+  // Home maps: fetch the user's GPS position once so the camera opens centred on
+  // where they actually are (with the nav puck on it), not the Accra demo view.
+  const [userLoc, setUserLoc] = React.useState<[number, number] | null>(null);
+  React.useEffect(() => {
+    if (!centerOnUser) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const ll: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        userLocRef.current = ll;
+        if (alive) setUserLoc(ll);
+      } catch {
+        /* permission denied or location off — fall back to the default view */
+      }
+    })();
+    return () => { alive = false; };
+  }, [centerOnUser]);
+
+  // Auto-fit the whole trip once pickup + destination are known and we're not
+  // following/centred (i.e. just after a match) — like Uber framing the route.
+  // Fits once (not on every driver GPS tick) so it doesn't fight panning.
+  React.useEffect(() => {
+    if (follow || centerOnUser || !pickup || !dest) return;
+    const b = tripBounds();
+    if (!b) return;
+    const t = setTimeout(() => camRef.current?.fitBounds(b, { duration: 700 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, centerOnUser, pickup?.[0], pickup?.[1], dest?.[0], dest?.[1]]);
+
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
-      <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true}>
+      <Map ref={mapViewRef} style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} attribution={true} onPress={onMapTap}>
+        <Images images={NAV_IMAGES} />
         {follow && driver ? (
           // Turn-by-turn: keep the driver's vehicle centred, rotate the map to
           // their heading, tilted for a 3D nav view (like Uber/Google Maps).
           <Camera
+            ref={camRef}
             center={driver}
             bearing={heading ?? 0}
             pitch={55}
@@ -173,12 +300,37 @@ export default function LiveMap({
             duration={700}
           />
         ) : follow ? (
-          <Camera trackUserLocation="course" zoom={15.5} pitch={55} />
+          <Camera ref={camRef} trackUserLocation="course" zoom={15.5} pitch={55} />
+        ) : centerOnUser ? (
+          // Home: lock the camera onto the user's live GPS so the nav puck sits
+          // centred (north-up), flying to a fallback view until a fix arrives.
+          <Camera
+            ref={camRef}
+            center={userLoc ?? center}
+            zoom={userLoc ? 15 : 12.5}
+            easing="ease"
+            duration={800}
+          />
         ) : (
-          <Camera initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
+          <Camera ref={camRef} initialViewState={{ center, zoom: mode === 'route' ? 12.5 : 12.5 }} />
         )}
-        {/* Blue GPS dot only when we aren't drawing an explicit vehicle marker. */}
-        <UserLocation>{navMarker && !driver ? <NavPuck marker={navMarker} heading={heading} /> : null}</UserLocation>
+        {/* Follow/nav modes: puck rides the native UserLocation. On the home maps
+            UserLocation doesn't anchor a custom child reliably, so we draw the
+            puck as a positioned Marker at the fetched coordinate instead. */}
+        <UserLocation>
+          {navMarker && !driver && !centerOnUser
+            ? <NavPuck marker={navMarker} heading={heading} />
+            : null}
+        </UserLocation>
+        {centerOnUser && userLoc ? (
+          selfDot ? (
+            <Marker id="me" lngLat={userLoc}>
+              <LocationDot />
+            </Marker>
+          ) : (
+            <VehicleSymbol id="me" coord={userLoc} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
+          )
+        ) : null}
 
         {showDemand
           ? DEMAND.map(([lng, lat, intensity], i) => (
@@ -228,9 +380,7 @@ export default function LiveMap({
             {/* The driver's vehicle — their chosen icon, rotated to heading and
                 sitting on the road, exactly where the nav camera is centred. */}
             {driver ? (
-              <Marker id="driver" lngLat={driver}>
-                <NavPuck marker={navMarker ?? DEFAULT_NAV_MARKER} heading={heading} />
-              </Marker>
+              <VehicleSymbol id="driver" coord={driver} iconId={(navMarker ?? DEFAULT_NAV_MARKER).icon} heading={heading} />
             ) : null}
           </>
         ) : (
@@ -243,23 +393,13 @@ export default function LiveMap({
       </Map>
     </View>
   );
-}
+});
+
+export default LiveMap;
 
 const styles = StyleSheet.create({
-  puckWrap: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
-  puckBeamWrap: { position: 'absolute', width: 60, height: 60, alignItems: 'center', justifyContent: 'flex-start' },
-  puckBeam: {
-    width: 0, height: 0,
-    borderLeftWidth: 16, borderRightWidth: 16, borderBottomWidth: 26,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent',
-    opacity: 0.5,
-  },
-  puckHalo: { position: 'absolute', width: 56, height: 56, borderRadius: 28, opacity: 0.22 },
-  puck: {
-    width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 3, borderColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 6,
-  },
+  puckWrap: { alignItems: 'center', justifyContent: 'center', width: 48, height: 48 },
+  navArrow: { width: 44, height: 44 },
   pinWrap: { alignItems: 'center', justifyContent: 'center' },
   pin: {
     width: 16,

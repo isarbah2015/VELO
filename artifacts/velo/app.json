@@ -9,23 +9,24 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.velo.ridehailing",
-      "config": {
-        "googleMapsApiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.velo.ridehailing",
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#09090B"
       },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyA4hjcVgRDLcB6Hkd98LrlsFWIVPkLyvvM"
-        }
-      }
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -39,6 +40,7 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "./plugins/withResizeable.js",
       [
         "expo-splash-screen",
         {
@@ -61,11 +63,27 @@
         {
           "locationWhenInUsePermission": "VELO uses your location to show your position on the map, find nearby drivers, and track trips in real time."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "VELO uses the camera so drivers can photograph their Ghana Card and motorcycle for verification.",
+          "photosPermission": "VELO needs photo access only if you choose an existing image."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "83621615-8396-435c-9141-8ec58db00c38"
+      }
+    },
+    "owner": "davidsarb-2"
   }
 }

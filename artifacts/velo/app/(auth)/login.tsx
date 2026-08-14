@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import Bounded from '@/components/Bounded';
 import { useGoogleSignIn, googleConfigured } from '@/services/googleAuth';
 
 // Isolated so useGoogleSignIn() only runs when Google is configured for this
@@ -134,6 +135,7 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+         <Bounded>
           {/* Logo */}
           <View style={styles.logoSection}>
             <Image
@@ -226,24 +228,20 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Social — only mounts the Google hook when configured for this
-                platform, otherwise the provider throws at render. */}
-            {googleConfigured() ? (
-              <GoogleAuthButton onError={setError} onSuccess={() => router.replace('/')} />
-            ) : (
-              <View style={[styles.socialBtn, { opacity: 0.5 }]}>
-                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-                <Text style={styles.socialBtnText}>Google sign-in coming soon</Text>
-              </View>
+            {/* Google sign-in — only shown when actually configured for this
+                platform; hidden entirely otherwise (no "coming soon" stub). */}
+            {googleConfigured() && (
+              <>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+                <GoogleAuthButton onError={setError} onSuccess={() => router.replace('/')} />
+              </>
             )}
           </View>
+         </Bounded>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

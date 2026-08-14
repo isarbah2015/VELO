@@ -9,8 +9,9 @@ import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import {
   DOC_FIELDS, type DocKey, type VerificationStatus,
-  uploadVerificationImage, submitVerification, getVerification,
+  uploadVerificationImage, submitVerification, getVerification, isLicenseExpired,
 } from '@/services/verification';
+import Bounded from '@/components/Bounded';
 
 const STATUS_META: Record<VerificationStatus, { label: string; color: string; icon: any }> = {
   unverified: { label: 'Not verified', color: '#71717A', icon: 'shield-outline' },
@@ -30,6 +31,8 @@ export default function DriverVerifyScreen() {
   const [plate, setPlate] = useState('');
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
+  const [licenseNo, setLicenseNo] = useState('');
+  const [licenseExpiry, setLicenseExpiry] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -41,19 +44,26 @@ export default function DriverVerifyScreen() {
         setModel(v.vehicle.model ?? '');
         setColor(v.vehicle.color ?? '');
       }
+      if (v.license) {
+        setLicenseNo(v.license.number ?? '');
+        setLicenseExpiry(v.license.expiry ?? '');
+      }
     });
   }, [user]);
 
+  // Camera-only capture (no gallery). Documents and bike photos must be taken
+  // live so a driver can't upload arbitrary images pulled from elsewhere — a
+  // basic anti-fraud measure for verification.
   const pick = async (key: DocKey) => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to upload your documents.');
+      Alert.alert('Camera access needed', 'Allow camera access to photograph your Ghana Card and motorcycle. Documents must be taken with the camera, not chosen from your gallery.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+    const result = await ImagePicker.launchCameraAsync({
       quality: 0.6,
       allowsEditing: true,
+      cameraType: ImagePicker.CameraType.back,
     });
     if (!result.canceled && result.assets[0]) {
       Haptics.selectionAsync();
@@ -61,25 +71,51 @@ export default function DriverVerifyScreen() {
     }
   };
 
+  // Live selfie via the FRONT camera, for face-matching against the Ghana Card
+  // and licence at review — the guard against a borrowed/stolen ID.
+  const takeSelfie = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Camera access needed', 'Allow camera access to take a live selfie for identity verification.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.6,
+      cameraType: ImagePicker.CameraType.front,
+    });
+    if (!result.canceled && result.assets[0]) {
+      Haptics.selectionAsync();
+      setUris((prev) => ({ ...prev, selfie: result.assets[0].uri }));
+    }
+  };
+
+  const expiry = licenseExpiry.trim();
+  const expiryValid = /^\d{4}-\d{2}-\d{2}$/.test(expiry);
+  const expired = expiryValid && isLicenseExpired(expiry);
+  const licenseOk = licenseNo.trim().length >= 4 && expiryValid && !expired;
   const vehicleOk = plate.trim().length >= 4 && model.trim().length >= 2 && color.trim().length >= 2;
-  const allProvided = DOC_FIELDS.every((f) => uris[f.key]) && vehicleOk;
+  const allProvided =
+    DOC_FIELDS.every((f) => uris[f.key]) && !!uris.selfie && vehicleOk && licenseOk;
 
   const submit = async () => {
     if (!user || !allProvided) return;
     setSubmitting(true);
     try {
+      // Upload every document photo plus the selfie (front-camera).
+      const keys: DocKey[] = [...DOC_FIELDS.map((f) => f.key), 'selfie'];
       const entries = await Promise.all(
-        DOC_FIELDS.map(async (f) => {
-          const local = uris[f.key]!;
+        keys.map(async (k) => {
+          const local = uris[k]!;
           // Already-uploaded https URLs (from a prior submission) are kept as-is.
-          const url = local.startsWith('http') ? local : await uploadVerificationImage(user.uid, f.key, local);
-          return [f.key, url] as const;
+          const url = local.startsWith('http') ? local : await uploadVerificationImage(user.uid, k, local);
+          return [k, url] as const;
         })
       );
       await submitVerification(
         user.uid,
         Object.fromEntries(entries) as Record<DocKey, string>,
-        { plate: plate.trim(), model: model.trim(), color: color.trim() }
+        { plate: plate.trim(), model: model.trim(), color: color.trim() },
+        { number: licenseNo.trim(), expiry: expiry }
       );
       setStatus('pending');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -106,15 +142,39 @@ export default function DriverVerifyScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120 }}>
+       <Bounded>
         <View style={[styles.statusChip, { borderColor: meta.color }]}>
           <Ionicons name={meta.icon} size={18} color={meta.color} />
           <Text style={[styles.statusText, { color: meta.color }]}>{meta.label}</Text>
         </View>
 
         <Text style={styles.intro}>
-          Upload a clear photo of your Ghana Card and all four sides of your motorcycle, and add your
-          plate + bike details. This keeps riders safe and unlocks payouts.
+          Photograph your Ghana Card, your rider's licence (front & back), all four sides of your
+          motorcycle, and take a live selfie (camera only). Passengers only ride with verified,
+          licensed drivers.
         </Text>
+
+        {/* Live selfie — front camera, for face-matching against the ID + licence. */}
+        <TouchableOpacity
+          style={styles.docRow}
+          onPress={() => !locked && takeSelfie()}
+          activeOpacity={locked ? 1 : 0.8}
+        >
+          {uris.selfie ? (
+            <Image source={{ uri: uris.selfie }} style={styles.thumb} />
+          ) : (
+            <View style={styles.thumbEmpty}>
+              <Ionicons name="person-outline" size={22} color="#52525B" />
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.docLabel}>Live selfie</Text>
+            <Text style={[styles.docSub, uris.selfie && { color: '#22C55E' }]}>
+              {uris.selfie ? 'Selfie added' : 'Tap to take a selfie'}
+            </Text>
+          </View>
+          {!locked && <Ionicons name={uris.selfie ? 'checkmark-circle' : 'chevron-forward'} size={20} color={uris.selfie ? '#22C55E' : '#3F3F46'} />}
+        </TouchableOpacity>
 
         {DOC_FIELDS.map((f) => (
           <TouchableOpacity
@@ -133,12 +193,41 @@ export default function DriverVerifyScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.docLabel}>{f.label}</Text>
               <Text style={[styles.docSub, uris[f.key] && { color: '#22C55E' }]}>
-                {uris[f.key] ? 'Photo added' : 'Tap to upload'}
+                {uris[f.key] ? 'Photo added' : 'Tap to take photo'}
               </Text>
             </View>
             {!locked && <Ionicons name={uris[f.key] ? 'checkmark-circle' : 'chevron-forward'} size={20} color={uris[f.key] ? '#22C55E' : '#3F3F46'} />}
           </TouchableOpacity>
         ))}
+
+        {/* Licence details — number + expiry kept on record; an expired
+            licence can't be submitted and is flagged if it lapses later. */}
+        <Text style={styles.sectionTitle}>Rider's licence</Text>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Licence number</Text>
+          <TextInput
+            style={styles.input}
+            value={licenseNo}
+            onChangeText={setLicenseNo}
+            editable={!locked}
+            placeholder="e.g. GHA-1234567"
+            placeholderTextColor="#52525B"
+            autoCapitalize="characters"
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Expiry date (YYYY-MM-DD)</Text>
+          <TextInput
+            style={[styles.input, expired && { borderColor: '#EF4444' }]}
+            value={licenseExpiry}
+            onChangeText={setLicenseExpiry}
+            editable={!locked}
+            placeholder="2027-12-31"
+            placeholderTextColor="#52525B"
+            keyboardType="numbers-and-punctuation"
+          />
+          {expired && <Text style={styles.errorText}>This licence has expired — renew it before applying.</Text>}
+        </View>
 
         {/* Vehicle details — the plate + description a rider uses to spot the
             right bike, and the platform keeps on record. */}
@@ -178,6 +267,7 @@ export default function DriverVerifyScreen() {
             autoCapitalize="words"
           />
         </View>
+       </Bounded>
       </ScrollView>
 
       {!locked && (
@@ -224,6 +314,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginTop: 24, marginBottom: 12 },
   field: { marginBottom: 14, gap: 6 },
   fieldLabel: { fontSize: 13, color: '#A1A1AA', fontWeight: '500' },
+  errorText: { fontSize: 12, color: '#EF4444', marginTop: 2 },
   input: {
     backgroundColor: '#1C1C1F',
     borderWidth: 1,

@@ -1,4 +1,7 @@
 import * as Location from 'expo-location';
+import { cached } from './cache';
+
+const DAY = 24 * 60 * 60 * 1000;
 
 export type LngLat = [number, number]; // [longitude, latitude] — MapLibre order
 
@@ -88,43 +91,51 @@ export interface RouteResult {
  * turn-by-turn directions. Falls back to a straight line + haversine estimate
  * if the network/route lookup fails.
  */
+// Fetch a real road route from OSRM, or throw if none — so the caller only
+// caches successful routes (never a transient straight-line fallback).
+async function fetchRoute(from: LngLat, to: LngLat): Promise<RouteResult> {
+  const km = distanceKm(from, to);
+  const url =
+    `https://router.project-osrm.org/route/v1/driving/` +
+    `${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson&steps=true`;
+  const res = await fetch(url);
+  const json = await res.json();
+  const route = json?.routes?.[0];
+  const coords: LngLat[] | undefined = route?.geometry?.coordinates;
+  if (!coords || coords.length <= 1) throw new Error('no route');
+  const steps: RouteStep[] = [];
+  for (const leg of route.legs ?? []) {
+    for (const s of leg.steps ?? []) {
+      const loc = s?.maneuver?.location;
+      if (!Array.isArray(loc)) continue;
+      steps.push({
+        location: [loc[0], loc[1]],
+        type: String(s.maneuver.type ?? 'turn'),
+        modifier: s.maneuver.modifier ? String(s.maneuver.modifier) : undefined,
+        name: String(s.name ?? ''),
+        distanceM: Number(s.distance ?? 0),
+      });
+    }
+  }
+  return {
+    coords,
+    distanceKm: (route.distance ?? km * 1000) / 1000,
+    durationMin: Math.max(1, Math.round((route.duration ?? 0) / 60)) || etaMinutes(km),
+    steps,
+  };
+}
+
 export async function getRoute(from: LngLat, to: LngLat): Promise<RouteResult> {
   const km = distanceKm(from, to);
   const fallback: RouteResult = { coords: [from, to], distanceKm: km, durationMin: etaMinutes(km), steps: [] };
+  // Cache successful routes for a day, keyed by rounded endpoints (roads don't
+  // move); a failure returns the uncached straight-line fallback so we retry.
+  const key = `route:${from[0].toFixed(4)},${from[1].toFixed(4)}_${to[0].toFixed(4)},${to[1].toFixed(4)}`;
   try {
-    const url =
-      `https://router.project-osrm.org/route/v1/driving/` +
-      `${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson&steps=true`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const route = json?.routes?.[0];
-    const coords: LngLat[] | undefined = route?.geometry?.coordinates;
-    if (coords && coords.length > 1) {
-      const steps: RouteStep[] = [];
-      for (const leg of route.legs ?? []) {
-        for (const s of leg.steps ?? []) {
-          const loc = s?.maneuver?.location;
-          if (!Array.isArray(loc)) continue;
-          steps.push({
-            location: [loc[0], loc[1]],
-            type: String(s.maneuver.type ?? 'turn'),
-            modifier: s.maneuver.modifier ? String(s.maneuver.modifier) : undefined,
-            name: String(s.name ?? ''),
-            distanceM: Number(s.distance ?? 0),
-          });
-        }
-      }
-      return {
-        coords,
-        distanceKm: (route.distance ?? km * 1000) / 1000,
-        durationMin: Math.max(1, Math.round((route.duration ?? 0) / 60)) || etaMinutes(km),
-        steps,
-      };
-    }
+    return await cached(key, DAY, () => fetchRoute(from, to));
   } catch {
-    // offline / server down — straight-line fallback
+    return fallback;
   }
-  return fallback;
 }
 
 // Turn a parsed maneuver into a spoken instruction, e.g.
@@ -153,17 +164,57 @@ export function maneuverText(step: RouteStep, withDistance?: number): string {
   return `${action}.`;
 }
 
+export interface PlaceSuggestion {
+  label: string; // human-readable, e.g. "Accra Mall, East Legon"
+  coord: LngLat;
+}
+
+// Type-ahead address search via Photon (photon.komoot.io) — a free, key-less
+// OpenStreetMap geocoder. No Google Places, so no API billing. Biased to Accra
+// so short local names resolve sensibly. Returns [] on any failure.
+export async function searchPlaces(query: string, signal?: AbortSignal): Promise<PlaceSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 3) return [];
+  try {
+    const url =
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}` +
+      `&limit=6&lang=en&lat=${ACCRA_FALLBACK[1]}&lon=${ACCRA_FALLBACK[0]}`;
+    const res = await fetch(url, { signal });
+    const json = await res.json();
+    const feats: any[] = Array.isArray(json?.features) ? json.features : [];
+    const out: PlaceSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const f of feats) {
+      const c = f?.geometry?.coordinates;
+      if (!Array.isArray(c) || c.length < 2) continue;
+      const p = f.properties ?? {};
+      const label = [p.name, p.street && p.street !== p.name ? p.street : null, p.district, p.city]
+        .filter(Boolean)
+        .join(', ');
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      out.push({ label, coord: [c[0], c[1]] });
+    }
+    return out;
+  } catch {
+    return []; // offline / aborted / server down
+  }
+}
+
 export async function geocode(address: string): Promise<LngLat | null> {
   const q = address?.trim();
   if (!q) return null;
-  try {
-    // Bias results to Ghana for short local names.
-    const results = await Location.geocodeAsync(q.includes(',') ? q : `${q}, Accra, Ghana`);
-    if (results && results.length > 0) {
-      return [results[0].longitude, results[0].latitude];
+  // Cache resolved addresses for a week — the same pickups/destinations recur
+  // constantly, so this avoids repeat geocoder calls.
+  return cached(`geocode:${q.toLowerCase()}`, 7 * DAY, async () => {
+    try {
+      const results = await Location.geocodeAsync(q.includes(',') ? q : `${q}, Accra, Ghana`);
+      if (results && results.length > 0) {
+        return [results[0].longitude, results[0].latitude] as LngLat;
+      }
+    } catch {
+      // fall through
     }
-  } catch {
-    // fall through
-  }
-  return null;
+    return null;
+  });
 }

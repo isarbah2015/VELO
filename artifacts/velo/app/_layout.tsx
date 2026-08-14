@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import AnimatedSplash from '@/components/AnimatedSplash';
+import { applyGlobalFont } from '@/utils/globalFont';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -29,13 +31,24 @@ const queryClient = new QueryClient();
 function Bootstrap() {
   const { authInitialized } = useApp();
   const [animDone, setAnimDone] = useState(false);
-  const ready = authInitialized && animDone;
+  const [splashGone, setSplashGone] = useState(false);
+  // Mount the app as soon as auth is known (under the splash) so the first
+  // screen is fully painted before the splash dissolves — no post-splash
+  // flash. The splash then crossfades out once BOTH auth + the branded
+  // animation are done, and unmounts itself.
+  const dismiss = authInitialized && animDone;
 
   return (
-    <>
-      {!ready && <AnimatedSplash onDone={() => setAnimDone(true)} />}
-      {ready && <RootLayoutNav />}
-    </>
+    <View style={{ flex: 1, backgroundColor: '#09090B' }}>
+      {authInitialized && <RootLayoutNav />}
+      {!splashGone && (
+        <AnimatedSplash
+          onDone={() => setAnimDone(true)}
+          dismiss={dismiss}
+          onHidden={() => setSplashGone(true)}
+        />
+      )}
+    </View>
   );
 }
 
@@ -85,7 +98,13 @@ function RootLayoutNav() {
       <Stack.Screen name="driver-trip" />
       <Stack.Screen name="chat" />
       <Stack.Screen name="receipt" />
+      <Stack.Screen name="ride-detail" />
       <Stack.Screen name="driver-verify" />
+      <Stack.Screen name="edit-profile" />
+      <Stack.Screen name="faq" />
+      <Stack.Screen name="notification-settings" />
+      <Stack.Screen name="emergency-contacts" />
+      <Stack.Screen name="report-trip" />
       <Stack.Screen name="referral" />
       <Stack.Screen name="wallet" />
       <Stack.Screen name="payment-methods" />
@@ -110,6 +129,9 @@ export default function RootLayout() {
   // continuously until the animated V is on screen underneath it. One logo,
   // no blank frame, no second splash.
   if (!fontsLoaded && !fontError) return null;
+
+  // Once the premium typeface is loaded, apply it app-wide (weight-aware).
+  if (fontsLoaded) applyGlobalFont();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { makeReferralCode, tierForRides } from '@/services/referrals';
+import Bounded from '@/components/Bounded';
 
 export default function ReferralScreen() {
   const insets = useSafeAreaInsets();
@@ -41,7 +42,7 @@ export default function ReferralScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <View style={{ padding: 20, gap: 18 }}>
+      <Bounded style={{ padding: 20, gap: 18 }}>
         {/* Tier badge */}
         <View style={[styles.tierCard, { borderColor: tier.color }]}>
           <View style={styles.tierTop}>
@@ -73,7 +74,7 @@ export default function ReferralScreen() {
           <Ionicons name="share-social" size={20} color="#000" />
           <Text style={styles.shareText}>Share your code</Text>
         </TouchableOpacity>
-      </View>
+      </Bounded>
     </View>
   );
 }

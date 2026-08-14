@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
 import { useApp, type Ride } from '@/context/AppContext';
 
 const FILTERS = ['All', 'Completed', 'Cancelled'] as const;
@@ -26,11 +27,11 @@ function formatDate(iso: string) {
   return d.toLocaleDateString('en-GH', { day: 'numeric', month: 'short' });
 }
 
-function RideCard({ ride }: { ride: Ride }) {
+function RideCard({ ride, onPress }: { ride: Ride; onPress: () => void }) {
   const isCompleted = ride.status === 'completed';
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85} disabled={!isCompleted}>
       <View style={styles.cardHeader}>
         <View style={styles.cardIconWrap}>
           <Ionicons name="bicycle" size={22} color="#FFD000" />
@@ -69,13 +70,22 @@ function RideCard({ ride }: { ride: Ride }) {
         </View>
         <Text style={styles.ridePrice}>₵{ride.price.toFixed(2)}</Text>
       </View>
-    </View>
+
+      {isCompleted && (
+        <View style={styles.viewRouteRow}>
+          <Ionicons name="map-outline" size={14} color="#FFD000" />
+          <Text style={styles.viewRouteText}>View route & receipt</Text>
+          <Ionicons name="chevron-forward" size={14} color="#52525B" />
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
 export default function RidesScreen() {
   const insets = useSafeAreaInsets();
   const { rides } = useApp();
+  const router = useRouter();
   const [filter, setFilter] = useState<Filter>('All');
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
@@ -115,7 +125,9 @@ export default function RidesScreen() {
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <RideCard ride={item} />}
+        renderItem={({ item }) => (
+          <RideCard ride={item} onPress={() => router.push({ pathname: '/ride-detail', params: { rideId: item.id } })} />
+        )}
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: tabBarH + 16 },
@@ -283,6 +295,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#71717A',
   },
+  viewRouteRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: '#1F1F23',
+  },
+  viewRouteText: { flex: 1, fontSize: 13, color: '#FFD000', fontWeight: '600' },
   ridePrice: {
     marginLeft: 'auto',
     fontSize: 16,

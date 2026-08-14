@@ -18,21 +18,24 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import LiveMap from '@/components/LiveMap';
+import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
+import MapControls from '@/components/MapControls';
 import { useApp, type Ride } from '@/context/AppContext';
 import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
 import { getOnlineDriverCount } from '@/services/driver';
+import { estimateFare, rateLabel } from '@/services/pricing';
 import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
+import { searchPlaces, type PlaceSuggestion } from '@/services/geo';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 const { width, height } = Dimensions.get('window');
 
 const SERVICES = [
-  { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵2.50/km' },
-  { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵4.00/km' },
-  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵5.00/km' },
+  { id: 'standard', label: 'Standard', icon: 'bicycle' as const, price: '₵1.60/km' },
+  { id: 'premium', label: 'Premium', icon: 'bicycle' as const, price: '₵2.20/km' },
+  { id: 'bossu', label: 'Okada Bossu', icon: 'flash' as const, price: '₵3.00/km' },
 ];
 
 const BIKES = [
@@ -76,25 +79,18 @@ const BIKES = [
 const rideTypeFor = (id: string): Ride['type'] =>
   id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
 
-// Distance/time-based pricing model per tier: fare = base + perKm·km + perMin·min.
-// (Estimated trip until live routing distance is wired in.)
-const RATE: Record<Ride['type'], { base: number; perKm: number; perMin: number }> = {
-  Standard: { base: 5, perKm: 2.5, perMin: 0.5 },
-  Premium: { base: 8, perKm: 4.0, perMin: 0.7 },
-  Bossu: { base: 12, perKm: 5.0, perMin: 0.9 },
-};
+// Affordable, minimum-floored fares live in services/pricing.ts. This is the
+// estimate for the demo trip length until live routing distance is wired in.
 const EST_KM = 6.4;
 const EST_MIN = 16;
-const estimateFare = (type: Ride['type']): number =>
-  Math.round(RATE[type].base + RATE[type].perKm * EST_KM + RATE[type].perMin * EST_MIN);
-const fareFor = (id: string): number => estimateFare(rideTypeFor(id));
+const fareFor = (id: string): number => estimateFare(rideTypeFor(id), EST_KM, EST_MIN);
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 type PayMethod = 'wallet' | 'cash' | 'momo';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace } = useApp();
+  const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace, navMarker } = useApp();
   // Rider loyalty: completed trips drive the tier + its standing fare discount.
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
@@ -104,11 +100,41 @@ export default function HomeScreen() {
   const [pickup, setPickup] = useState('Accra Mall, East Legon');
   const [destination, setDestination] = useState('Osu Oxford Street');
   const [bookingState, setBookingState] = useState<BookingState>('idle');
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [matchedRide, setMatchedRide] = useState<Ride | null>(null);
   const [searchInfo, setSearchInfo] = useState<{ fare: number; payMethod: PayMethod } | null>(null);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const unwatchRef = React.useRef<(() => void) | null>(null);
+  const mapRef = React.useRef<LiveMapHandle>(null);
+  const [showMapCtrl, setShowMapCtrl] = useState(false);
+  const ctrlTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealMapCtrl = () => {
+    setShowMapCtrl(true);
+    if (ctrlTimer.current) clearTimeout(ctrlTimer.current);
+    ctrlTimer.current = setTimeout(() => setShowMapCtrl(false), 5000);
+  };
+  useEffect(() => () => { if (ctrlTimer.current) clearTimeout(ctrlTimer.current); }, []);
+
+  // Address autocomplete (free OSM/Photon geocoder — no Google billing). The
+  // focused field drives a debounced search; tapping a result fills that field.
+  const [activeField, setActiveField] = useState<'pickup' | 'destination' | null>(null);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const activeQuery = activeField === 'pickup' ? pickup : activeField === 'destination' ? destination : '';
+  useEffect(() => {
+    if (!activeField) { setSuggestions([]); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => { searchPlaces(activeQuery, ctrl.signal).then(setSuggestions); }, 280);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [activeQuery, activeField]);
+
+  const pickSuggestion = (s: PlaceSuggestion) => {
+    Haptics.selectionAsync();
+    if (activeField === 'pickup') setPickup(s.label);
+    else if (activeField === 'destination') setDestination(s.label);
+    setActiveField(null);
+    setSuggestions([]);
+  };
 
   const isWeb = Platform.OS === 'web';
   const tabBarHeight = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
@@ -212,8 +238,17 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="route" />
+        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser selfDot navMarker={navMarker} onMapTap={revealMapCtrl} />
       </View>
+
+      {/* Tap-to-reveal zoom + recenter controls (right side, auto-hiding). */}
+      <MapControls
+        visible={showMapCtrl}
+        top={insets.top + height * 0.30}
+        onZoomIn={() => { mapRef.current?.zoomIn(); revealMapCtrl(); }}
+        onZoomOut={() => { mapRef.current?.zoomOut(); revealMapCtrl(); }}
+        onRecenter={() => { mapRef.current?.recenter(); revealMapCtrl(); }}
+      />
 
       {/* Floating route card — type pickup + destination directly (no modal) */}
       <View style={[styles.routeCard, { top: insets.top + 10 }]}>
@@ -225,12 +260,18 @@ export default function HomeScreen() {
               style={styles.routeInput}
               value={pickup}
               onChangeText={setPickup}
+              onFocus={() => setActiveField('pickup')}
               placeholder="Set pickup point"
               placeholderTextColor="#71717A"
               returnKeyType="next"
             />
           </View>
-          <Ionicons name="locate" size={18} color="#FFD000" />
+          <TouchableOpacity
+            onPress={() => { Haptics.selectionAsync(); mapRef.current?.recenter(); }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="locate" size={18} color="#FFD000" />
+          </TouchableOpacity>
         </View>
         <View style={styles.routeDivider} />
         <View style={styles.routeRow}>
@@ -241,12 +282,30 @@ export default function HomeScreen() {
               style={styles.routeInput}
               value={destination}
               onChangeText={setDestination}
+              onFocus={() => setActiveField('destination')}
               placeholder="Enter destination"
               placeholderTextColor="#71717A"
               returnKeyType="done"
             />
           </View>
         </View>
+
+        {/* Address autocomplete results for the focused field (free OSM search). */}
+        {activeField && suggestions.length > 0 && (
+          <View style={styles.suggestBox}>
+            {suggestions.map((s, i) => (
+              <TouchableOpacity
+                key={`${s.label}-${i}`}
+                style={[styles.suggestRow, i > 0 && styles.suggestDivider]}
+                onPress={() => pickSuggestion(s)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="location-outline" size={16} color="#71717A" />
+                <Text style={styles.suggestText} numberOfLines={1}>{s.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Saved places — one-tap destination fill + save the current one. */}
         <View style={styles.placesRow}>
@@ -291,49 +350,50 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Bottom sheet — single VELO Standard vehicle card */}
+      {/* Bottom sheet — single VELO Standard vehicle card; tap the top to
+          collapse it down to a compact bar so the map has more room. */}
       <View style={[styles.sheet, { paddingBottom: tabBarHeight + 12 }]}>
-        <View style={styles.sheetHandle} />
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => { Haptics.selectionAsync(); setSheetCollapsed((v) => !v); }}
+        >
+          <View style={styles.sheetHandle} />
+          <View style={styles.vehicleTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bikeName}>{selectedBike.name}</Text>
+              <View style={styles.fareRow}>
+                <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
+                {completedRides >= 10 && (
+                  <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
+                )}
+                <Text style={styles.fareSub}> est. fare</Text>
+                {sheetCollapsed && <Text style={styles.fareSub}> · {selectedBike.eta} away</Text>}
+              </View>
+              {!sheetCollapsed && <Text style={styles.fareFormula}>{rateLabel(rideTypeFor(selectedBike.id))}</Text>}
+            </View>
+            <Ionicons name={sheetCollapsed ? 'chevron-up' : 'chevron-down'} size={20} color="#71717A" />
+          </View>
+        </TouchableOpacity>
 
-        <View style={styles.vehicleTopRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bikeName}>{selectedBike.name}</Text>
-            <View style={styles.fareRow}>
-              <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
-              {completedRides >= 10 && (
-                <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
-              )}
-              <Text style={styles.fareSub}> est. fare</Text>
+        {!sheetCollapsed && (
+          <View style={styles.vehicleBody}>
+            <View style={styles.vehicleChipsCol}>
+              <View style={styles.vChip}>
+                <Ionicons name="time-outline" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
+              </View>
+              <View style={styles.vChip}>
+                <Ionicons name="star" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
+              </View>
+              <View style={styles.vChip}>
+                <Ionicons name="person-outline" size={14} color="#FFD000" />
+                <Text style={styles.vChipText}>1 seat</Text>
+              </View>
             </View>
-            <Text style={styles.fareFormula}>Base ₵5 · ₵2.50/km · ₵0.50/min</Text>
+            <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
           </View>
-          <View style={styles.vehicleIcons}>
-            <TouchableOpacity style={styles.roundIcon}>
-              <Ionicons name="heart-outline" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.roundIcon}>
-              <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.vehicleBody}>
-          <View style={styles.vehicleChipsCol}>
-            <View style={styles.vChip}>
-              <Ionicons name="time-outline" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>{selectedBike.eta} away</Text>
-            </View>
-            <View style={styles.vChip}>
-              <Ionicons name="star" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>{selectedBike.rating} rating</Text>
-            </View>
-            <View style={styles.vChip}>
-              <Ionicons name="person-outline" size={14} color="#FFD000" />
-              <Text style={styles.vChipText}>1 seat</Text>
-            </View>
-          </View>
-          <Image source={selectedBike.photo} style={styles.vehicleImg} resizeMode="contain" />
-        </View>
+        )}
 
         <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
           <Ionicons name="bicycle" size={18} color="#000000" />
@@ -348,49 +408,51 @@ export default function HomeScreen() {
         animationType="slide"
         onRequestClose={handleCloseBooking}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
-            {bookingState === 'confirm' && (
-              <ConfirmView
-                bike={selectedBike}
-                pickup={pickup}
-                destination={destination}
-                walletBalance={walletBalance}
-                completedRides={completedRides}
-                onConfirm={handleConfirmRide}
-                onCancel={() => setBookingState('idle')}
-              />
-            )}
-            {bookingState === 'searching' && (
-              <SearchingView
-                pickup={pickup}
-                destination={destination}
-                fare={searchInfo?.fare ?? effFare(selectedBike.id)}
-                payMethod={searchInfo?.payMethod ?? 'cash'}
-                onlineCount={onlineCount}
-                onCancel={handleCloseBooking}
-              />
-            )}
-            {bookingState === 'found' && (
-              <FoundView
-                driverName={matchedRide?.driverName ?? 'Your VELO driver'}
-                driverPhone={matchedRide?.driverPhone}
-                rideId={activeRideId}
-                pickup={pickup}
-                destination={destination}
-                onClose={handleCloseBooking}
-                onTrackRide={handleTrackRide}
-                onMessage={() => {
-                  setBookingState('idle');
-                  router.push({
-                    pathname: '/chat',
-                    params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
-                  });
-                }}
-              />
-            )}
+        {bookingState === 'searching' ? (
+          // Full-page immersive "finding a driver" — no bottom-sheet card.
+          <SearchingView
+            pickup={pickup}
+            destination={destination}
+            fare={searchInfo?.fare ?? effFare(selectedBike.id)}
+            payMethod={searchInfo?.payMethod ?? 'cash'}
+            onlineCount={onlineCount}
+            onCancel={handleCloseBooking}
+          />
+        ) : (
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+              {bookingState === 'confirm' && (
+                <ConfirmView
+                  bike={selectedBike}
+                  pickup={pickup}
+                  destination={destination}
+                  walletBalance={walletBalance}
+                  completedRides={completedRides}
+                  onConfirm={handleConfirmRide}
+                  onCancel={() => setBookingState('idle')}
+                />
+              )}
+              {bookingState === 'found' && (
+                <FoundView
+                  driverName={matchedRide?.driverName ?? 'Your VELO driver'}
+                  driverPhone={matchedRide?.driverPhone}
+                  rideId={activeRideId}
+                  pickup={pickup}
+                  destination={destination}
+                  onClose={handleCloseBooking}
+                  onTrackRide={handleTrackRide}
+                  onMessage={() => {
+                    setBookingState('idle');
+                    router.push({
+                      pathname: '/chat',
+                      params: { rideId: activeRideId ?? '', otherName: matchedRide?.driverName ?? 'Driver' },
+                    });
+                  }}
+                />
+              )}
+            </View>
           </View>
-        </View>
+        )}
       </Modal>
     </View>
   );
@@ -614,6 +676,7 @@ function SearchingView({
   onlineCount: number | null;
   onCancel: () => void;
 }) {
+  const searchInsets = useSafeAreaInsets();
   // Elapsed timer — a moving number reassures the rider the search is live.
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -639,20 +702,23 @@ function SearchingView({
   });
 
   return (
-    <View style={{ gap: 18, paddingVertical: 8 }}>
-      <View style={styles.sheetHandle} />
+    <View style={[styles.searchPage, { paddingTop: searchInsets.top + 24, paddingBottom: searchInsets.bottom + 20 }]}>
+      {/* Floating close — no top bar */}
+      <TouchableOpacity style={styles.searchClose} onPress={onCancel} hitSlop={10} activeOpacity={0.8}>
+        <Ionicons name="close" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
 
-      {/* Radar pulse with the VELO bike at the centre */}
-      <View style={styles.radarWrap}>
-        <Animated.View style={[styles.radarRing, ring(0)]} />
-        <Animated.View style={[styles.radarRing, ring(0.4)]} />
-        <View style={styles.radarCore}>
-          <Ionicons name="bicycle" size={30} color="#000" />
+      {/* Centre: radar pulse with the VELO bike + live status */}
+      <View style={styles.searchCenter}>
+        <View style={styles.radarWrap}>
+          <Animated.View style={[styles.radarRing, ring(0)]} />
+          <Animated.View style={[styles.radarRing, ring(0.4)]} />
+          <View style={styles.radarCore}>
+            <Ionicons name="bicycle" size={38} color="#000" />
+          </View>
         </View>
-      </View>
 
-      <View style={{ alignItems: 'center', gap: 4 }}>
-        <Text style={styles.sheetTitle}>Finding your driver…</Text>
+        <Text style={styles.searchBigTitle}>Finding your driver</Text>
         <Text style={styles.sheetSubtitle}>
           {onlineCount == null
             ? 'Connecting you with a nearby VELO driver'
@@ -663,34 +729,36 @@ function SearchingView({
         <Text style={styles.searchTimer}>{mm}:{ss}</Text>
       </View>
 
-      {/* Trip recap so the rider can confirm details while they wait */}
-      <View style={styles.searchRecap}>
-        <View style={styles.searchRouteRow}>
-          <View style={styles.routeDotYellow} />
-          <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
-        </View>
-        <View style={styles.searchRouteConnector} />
-        <View style={styles.searchRouteRow}>
-          <View style={styles.routeDotRedSm} />
-          <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
-        </View>
-        <View style={styles.searchDivider} />
-        <View style={styles.searchMetaRow}>
-          <View style={styles.searchMeta}>
-            <Ionicons name="pricetag-outline" size={15} color="#71717A" />
-            <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+      {/* Bottom: trip recap + cancel, floating on the full page (no card bar) */}
+      <View style={styles.searchBottom}>
+        <View style={styles.searchRecap}>
+          <View style={styles.searchRouteRow}>
+            <View style={styles.routeDotYellow} />
+            <Text style={styles.searchRouteText} numberOfLines={1}>{pickup}</Text>
           </View>
-          <View style={styles.searchMeta}>
-            <Ionicons name="card-outline" size={15} color="#71717A" />
-            <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+          <View style={styles.searchRouteConnector} />
+          <View style={styles.searchRouteRow}>
+            <View style={styles.routeDotRedSm} />
+            <Text style={styles.searchRouteText} numberOfLines={1}>{destination}</Text>
+          </View>
+          <View style={styles.searchDivider} />
+          <View style={styles.searchMetaRow}>
+            <View style={styles.searchMeta}>
+              <Ionicons name="pricetag-outline" size={15} color="#71717A" />
+              <Text style={styles.searchMetaText}>₵{fare.toFixed(2)}</Text>
+            </View>
+            <View style={styles.searchMeta}>
+              <Ionicons name="card-outline" size={15} color="#71717A" />
+              <Text style={styles.searchMetaText}>{PAY_LABEL[payMethod]}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
-        <Text style={styles.searchCancelText}>Cancel search</Text>
-      </TouchableOpacity>
-      <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
+        <TouchableOpacity style={styles.searchCancelBtn} onPress={onCancel} activeOpacity={0.85}>
+          <Text style={styles.searchCancelText}>Cancel search</Text>
+        </TouchableOpacity>
+        <Text style={styles.searchCancelNote}>You won't be charged — cancel any time before a driver accepts.</Text>
+      </View>
     </View>
   );
 }
@@ -896,8 +964,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 14,
+    paddingTop: 6,
+    gap: 10,
     borderTopWidth: 1,
     borderColor: '#27272A',
     shadowColor: '#000',
@@ -1036,6 +1104,13 @@ const styles = StyleSheet.create({
   routeLabel: { fontSize: 11, color: '#71717A', fontWeight: '600', marginBottom: 1 },
   routeInput: { fontSize: 15, color: '#FFFFFF', fontWeight: '600', padding: 0 },
   routeDivider: { height: 1, backgroundColor: '#27272A', marginLeft: 23 },
+  suggestBox: {
+    marginTop: 8, backgroundColor: '#131316', borderRadius: 12,
+    borderWidth: 1, borderColor: '#27272A', overflow: 'hidden',
+  },
+  suggestRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 11 },
+  suggestDivider: { borderTopWidth: 1, borderTopColor: '#1F1F23' },
+  suggestText: { flex: 1, fontSize: 14, color: '#E4E4E7', fontWeight: '500' },
   // Single vehicle card
   vehicleTopRow: {
     flexDirection: 'row',
@@ -1104,7 +1179,7 @@ const styles = StyleSheet.create({
   },
   promoOk: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
   promoErr: { color: '#EF4444', fontSize: 12 },
-  farePrice: { fontSize: 26, fontWeight: '900', color: '#FFD000' },
+  farePrice: { fontSize: 23, fontWeight: '900', color: '#FFD000' },
   fareStrike: { fontSize: 14, color: '#71717A', fontWeight: '600', textDecorationLine: 'line-through' },
   fareSub: { fontSize: 13, color: '#71717A', fontWeight: '600' },
   fareFormula: { fontSize: 11, color: '#71717A', marginTop: 2 },
@@ -1125,7 +1200,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
   },
-  vehicleChipsCol: { gap: 8 },
+  vehicleChipsCol: { gap: 6 },
   vChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1133,15 +1208,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1C1C1F',
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#2A2A2D',
   },
   vChipText: { fontSize: 13, color: '#E4E4E7', fontWeight: '600' },
   vehicleImg: {
-    width: 235,
-    height: 150,
-    marginRight: -18,
+    width: 196,
+    height: 122,
+    marginRight: -14,
   },
   routeDot: {
     width: 12,
@@ -1159,7 +1234,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#FFD000',
     borderRadius: 16,
-    height: 54,
+    height: 50,
   },
   bookNowText: {
     fontSize: 15,
@@ -1201,6 +1276,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
   },
+  // Full-page "finding a driver"
+  searchPage: {
+    flex: 1,
+    backgroundColor: '#09090B',
+    paddingHorizontal: 24,
+    justifyContent: 'space-between',
+  },
+  searchClose: {
+    alignSelf: 'flex-end',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  searchBigTitle: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5, marginTop: 24 },
+  searchBottom: { gap: 14 },
   radarWrap: {
     alignSelf: 'center',
     width: 140,

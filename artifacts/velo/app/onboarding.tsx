@@ -57,7 +57,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-standard.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
+      imageStyle: { transform: [{ scale: 2.5 }, { translateX: -width * 0.5 }] },
       colors: ['#0A1F2E', '#0A1424', '#09090B'],
       glow: 'rgba(255,208,0,0.22)',
     },
@@ -73,7 +73,7 @@ const SLIDES: {
       image: require('@/assets/images/bike-premium.png'),
       heroMode: 'contain',
       // Zoom into the front quarter (front wheel + fairing).
-      imageStyle: { transform: [{ scale: 1.9 }, { translateX: -width * 0.22 }] },
+      imageStyle: { transform: [{ scale: 2.5 }, { translateX: -width * 0.5 }] },
       colors: ['#0A2A1C', '#0A1A14', '#09090B'],
       glow: 'rgba(34,197,94,0.22)',
     },
@@ -154,16 +154,28 @@ export default function OnboardingScreen() {
           </Animated.View>
         );
       })}
-      {/* Shared bottom scrim so the text stays legible on every background. */}
+      {/* Cropped bike — full-bleed from the very top (bleeds under the header),
+          NOT boxed in a card. Its lower half is dissolved by the scrim below, so
+          there's no hard top or bottom edge — just the bike fading into black. */}
+      {isContain && slide.bg.image && (
+        <Image
+          source={slide.bg.image}
+          style={[styles.heroImg, slide.bg.imageStyle]}
+          resizeMode="contain"
+        />
+      )}
+
+      {/* Gradient that fades the bike into solid black where the copy sits — no
+          card, just a smooth transparent→black wash laid over the bike. */}
       <LinearGradient
-        colors={['rgba(9,9,11,0.5)', 'rgba(9,9,11,0.15)', 'rgba(9,9,11,0.75)', 'rgba(9,9,11,0.98)']}
-        locations={[0, 0.4, 0.72, 0.92]}
+        colors={['transparent', 'transparent', 'rgba(9,9,11,0.85)', '#09090B', '#09090B']}
+        locations={[0, 0.34, 0.5, 0.62, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      {/* Header — absolute overlay so the bike bleeds up underneath it. */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top - 6, 6) }]}>
         <View style={styles.headerLogoRow}>
           <AnimatedLogo size={30} />
           <Text style={styles.logo}>VELO</Text>
@@ -173,21 +185,8 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Content column: the contained product image (if any) sits up top, and
-          the text sits below it — both in normal flow, so nothing overlaps. */}
-      <View style={styles.slide}>
-        {/* Cropped bike hero, absolutely positioned in the top band so it never
-            disturbs the flow of the text/footer below. The zoom shows only the
-            front quarter; the screen edges do the cropping. */}
-        {isContain && slide.bg.image && (
-          <View style={styles.heroClip}>
-            <Image
-              source={slide.bg.image}
-              style={[styles.heroImg, slide.bg.imageStyle]}
-              resizeMode="contain"
-            />
-          </View>
-        )}
+      {/* Copy + footer sit on the solid part of the gradient, over the bike. */}
+      <View style={styles.contentCol} pointerEvents="box-none">
         <View style={styles.textContent}>
           <View style={styles.tagPill}>
             <Text style={styles.tagText}>{slide.tag}</Text>
@@ -205,28 +204,27 @@ export default function OnboardingScreen() {
             </View>
           )}
         </View>
-      </View>
 
-      {/* Bottom */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-        <View style={styles.dots}>
-          {SLIDES.map((_, i) => (
-            <View key={i} style={[styles.dot, i === currentIndex && styles.dotActive]} />
-          ))}
-        </View>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={styles.dots}>
+            {SLIDES.map((_, i) => (
+              <View key={i} style={[styles.dot, i === currentIndex && styles.dotActive]} />
+            ))}
+          </View>
 
-        <TouchableOpacity style={styles.ctaButton} onPress={handleNext} activeOpacity={0.85}>
-          <Text style={styles.ctaText}>
-            {currentIndex === SLIDES.length - 1 ? 'Get Started' : 'Continue'}
-          </Text>
-          <Ionicons name="arrow-forward" size={20} color="#000" />
-        </TouchableOpacity>
-
-        {currentIndex === SLIDES.length - 1 && (
-          <TouchableOpacity onPress={handleSkip} style={styles.signInLink}>
-            <Text style={styles.signInLinkText}>Already have an account? Sign In</Text>
+          <TouchableOpacity style={styles.ctaButton} onPress={handleNext} activeOpacity={0.85}>
+            <Text style={styles.ctaText}>
+              {currentIndex === SLIDES.length - 1 ? 'Get Started' : 'Continue'}
+            </Text>
+            <Ionicons name="arrow-forward" size={20} color="#000" />
           </TouchableOpacity>
-        )}
+
+          {currentIndex === SLIDES.length - 1 && (
+            <TouchableOpacity onPress={handleSkip} style={styles.signInLink}>
+              <Text style={styles.signInLinkText}>Already have an account? Sign In</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -244,28 +242,32 @@ const styles = StyleSheet.create({
     width: width * 1.18,
     height: height,
   },
-  // Cropped hero: an ABSOLUTE clip box in the top band. Absolute keeps it out of
-  // flow (the text/footer below lay out untouched); overflow:hidden confines the
-  // zoomed image — including its opaque background — to this band so it can't
-  // cover the text. The per-slide zoom shows only the front quarter of the bike.
-  heroClip: {
+  // Full-bleed cropped hero: an absolute image anchored to the very top (bleeds
+  // under the header). NOT clipped — the scrim over it dissolves its lower half,
+  // so there's no card edge top or bottom. Same frame size as before.
+  heroImg: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: height * 0.46,
-    overflow: 'hidden',
-  },
-  heroImg: {
-    width: '100%',
-    height: '100%',
+    height: height * 0.50,
   },
   header: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingBottom: 16,
+    paddingBottom: 8,
+  },
+  // Copy + footer overlay, pinned to the bottom over the solid gradient.
+  contentCol: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
   },
   headerLogoRow: {
     flexDirection: 'row',
@@ -277,11 +279,17 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FFD000',
     letterSpacing: 3,
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   skipText: {
     fontSize: 15,
     color: '#FFFFFF',
     fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   flatList: {
     flex: 1,
@@ -292,7 +300,7 @@ const styles = StyleSheet.create({
   },
   textContent: {
     paddingHorizontal: 28,
-    gap: 12,
+    gap: 9,
   },
   featureList: {
     gap: 10,
@@ -311,7 +319,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
   },
   featureText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
   },
@@ -331,16 +339,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 40,
+    fontSize: 30,
     fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 46,
+    lineHeight: 35,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#D4D4D8',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   footer: {
     paddingHorizontal: 24,

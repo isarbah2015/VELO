@@ -41,7 +41,6 @@ export default function AddPaymentScreen() {
 
   const [selectedType, setSelectedType] = useState<PaymentMethod['type']>('momo');
   const [number, setNumber] = useState('');
-  const [holderName, setHolderName] = useState('');
   const [setAsDefault, setSetAsDefault] = useState(paymentMethods.length === 0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +59,7 @@ export default function AddPaymentScreen() {
     await addPaymentMethod({
       type: selectedType,
       name: selectedProvider.label,
-      number: selectedType === 'card' ? `•••• ${number.slice(-4)}` : `+233 ${number}`,
+      number: `+233 ${number.trim()}`,
       isDefault: setAsDefault,
     });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -113,71 +112,75 @@ export default function AddPaymentScreen() {
             })}
           </View>
 
-          {/* Input */}
-          <Text style={styles.sectionLabel}>
-            {selectedType === 'card' ? 'Card Number' : 'Phone Number'}
-          </Text>
-          <View style={styles.inputGroup}>
-            {selectedType !== 'card' && (
-              <View style={styles.countryCode}>
-                <Text style={styles.countryCodeText}>🇬🇭 +233</Text>
+          {selectedType === 'card' ? (
+            // Cards are NEVER entered in-app (PCI). They're captured on Paystack's
+            // hosted checkout when topping up the wallet; rides are then paid from
+            // the balance. This keeps the app out of PCI scope entirely.
+            <View style={styles.cardInfo}>
+              <View style={styles.cardInfoIcon}>
+                <Ionicons name="lock-closed" size={22} color="#FFD000" />
               </View>
-            )}
-            <TextInput
-              style={[styles.input, selectedType !== 'card' && { flex: 1 }]}
-              placeholder={selectedType === 'card' ? '1234 5678 9012 3456' : '24 000 0000'}
-              placeholderTextColor="#52525B"
-              value={number}
-              onChangeText={setNumber}
-              keyboardType={selectedType === 'card' ? 'number-pad' : 'phone-pad'}
-              maxLength={selectedType === 'card' ? 19 : 12}
-            />
-          </View>
-
-          {selectedType === 'card' && (
-            <View style={styles.inputGroup}>
-              <TextInput
-                style={styles.inputFull}
-                placeholder="Cardholder name"
-                placeholderTextColor="#52525B"
-                value={holderName}
-                onChangeText={setHolderName}
-                autoCapitalize="words"
-              />
+              <Text style={styles.cardInfoTitle}>Cards are handled securely by Paystack</Text>
+              <Text style={styles.cardInfoText}>
+                Your card details are entered on Paystack&apos;s secure checkout and never touch VELO.
+                Add a card by topping up your VELO Wallet — then pay for any ride from your balance.
+              </Text>
+              <TouchableOpacity style={[styles.saveBtn, styles.cardBtn]} onPress={() => router.replace('/wallet')} activeOpacity={0.85}>
+                <Ionicons name="card" size={18} color="#000" />
+                <Text style={styles.saveBtnText} numberOfLines={1}>Top up with card</Text>
+              </TouchableOpacity>
             </View>
+          ) : (
+            <>
+              {/* Phone number for mobile money — this is a reference; the actual
+                  charge is authorised on the network at payment time. */}
+              <Text style={styles.sectionLabel}>Phone Number</Text>
+              <View style={styles.inputGroup}>
+                <View style={styles.countryCode}>
+                  <Text style={styles.countryCodeText}>🇬🇭 +233</Text>
+                </View>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="24 000 0000"
+                  placeholderTextColor="#52525B"
+                  value={number}
+                  onChangeText={setNumber}
+                  keyboardType="phone-pad"
+                  maxLength={12}
+                />
+              </View>
+
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+              <TouchableOpacity
+                style={styles.defaultToggle}
+                onPress={() => setSetAsDefault((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.checkbox, setAsDefault && styles.checkboxActive]}>
+                  {setAsDefault && <Ionicons name="checkmark" size={14} color="#000" />}
+                </View>
+                <Text style={styles.defaultToggleText}>Set as default payment method</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.saveBtn, isLoading && styles.saveBtnDisabled]}
+                onPress={handleSave}
+                disabled={isLoading}
+                activeOpacity={0.85}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.saveBtnText}>Save {selectedProvider.label}</Text>
+                )}
+              </TouchableOpacity>
+            </>
           )}
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          {/* Set as default toggle */}
-          <TouchableOpacity
-            style={styles.defaultToggle}
-            onPress={() => setSetAsDefault((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.checkbox, setAsDefault && styles.checkboxActive]}>
-              {setAsDefault && <Ionicons name="checkmark" size={14} color="#000" />}
-            </View>
-            <Text style={styles.defaultToggleText}>Set as default payment method</Text>
-          </TouchableOpacity>
-
-          {/* Save */}
-          <TouchableOpacity
-            style={[styles.saveBtn, isLoading && styles.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={isLoading}
-            activeOpacity={0.85}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#000" />
-            ) : (
-              <Text style={styles.saveBtnText}>Save Payment Method</Text>
-            )}
-          </TouchableOpacity>
 
           <View style={styles.securityRow}>
             <Ionicons name="lock-closed-outline" size={14} color="#52525B" />
-            <Text style={styles.securityText}>256-bit encrypted • PCI DSS compliant</Text>
+            <Text style={styles.securityText}>Payments processed securely by Paystack</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -237,8 +240,19 @@ const styles = StyleSheet.create({
   defaultToggleText: { fontSize: 14, color: '#A1A1AA', flex: 1 },
   saveBtn: {
     backgroundColor: '#FFD000', borderRadius: 14, height: 54,
-    alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center',
   },
+  cardInfo: {
+    backgroundColor: '#131316', borderRadius: 16, borderWidth: 1, borderColor: '#27272A',
+    padding: 20, gap: 10, alignItems: 'center',
+  },
+  cardBtn: { alignSelf: 'stretch', paddingHorizontal: 20, marginTop: 4 },
+  cardInfoIcon: {
+    width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,208,0,0.12)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 2,
+  },
+  cardInfoTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
+  cardInfoText: { fontSize: 13, color: '#A1A1AA', textAlign: 'center', lineHeight: 20, marginBottom: 6 },
   saveBtnDisabled: { opacity: 0.7 },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#000000' },
   securityRow: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' },

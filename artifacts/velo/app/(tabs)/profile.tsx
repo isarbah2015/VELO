@@ -1,22 +1,29 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
+import Bounded from '@/components/Bounded';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
-import { NAV_ICONS, NAV_COLORS } from '@/services/navMarker';
+import { NAV_ICONS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
+import { tierProgress } from '@/services/tiers';
+import {
+  LANGUAGES, getLanguage, setLanguage, languageLabel, type LanguageCode,
+} from '@/services/settings';
 
 interface MenuItem {
   id: string;
@@ -28,7 +35,8 @@ interface MenuItem {
   badge?: string;
 }
 
-const MENU_SECTIONS: { title: string; items: MenuItem[] }[] = [
+// Built per-render so dynamic subtitles (e.g. the chosen language) stay live.
+const buildMenuSections = (langLbl: string): { title: string; items: MenuItem[] }[] => [
   {
     title: 'Account',
     items: [
@@ -40,27 +48,40 @@ const MENU_SECTIONS: { title: string; items: MenuItem[] }[] = [
   {
     title: 'Safety',
     items: [
-      { id: 'sos', label: 'Emergency SOS', sub: 'Contacts & quick dial', icon: 'alert-circle-outline', iconColor: '#EF4444', chevron: true },
-      { id: 'track', label: 'Share Location', sub: 'Share rides with family', icon: 'location-outline', chevron: true },
-      { id: 'contacts', label: 'Emergency Contacts', sub: '2 contacts set', icon: 'people-outline', chevron: true },
+      { id: 'sos', label: 'Emergency SOS', sub: 'Quick-dial 191', icon: 'alert-circle-outline', iconColor: '#EF4444', chevron: true },
+      { id: 'track', label: 'Share Location', sub: 'Share your live trip', icon: 'location-outline', chevron: true },
+      { id: 'contacts', label: 'Emergency Contacts', sub: 'Trusted people to reach', icon: 'people-outline', chevron: true },
     ],
   },
   {
     title: 'Preferences',
     items: [
-      { id: 'lang', label: 'Language', sub: 'English', icon: 'language-outline', chevron: true },
+      { id: 'lang', label: 'Language', sub: langLbl, icon: 'language-outline', chevron: true },
       { id: 'notif', label: 'Notifications', sub: 'Rides, offers, alerts', icon: 'notifications-outline', chevron: true },
-      { id: 'help', label: 'Help & Support', sub: 'FAQs, contact us', icon: 'help-circle-outline', chevron: true },
+    ],
+  },
+  {
+    title: 'Support & Legal',
+    items: [
+      { id: 'help', label: 'Help & FAQs', sub: 'Answers and contact us', icon: 'help-circle-outline', chevron: true },
+      { id: 'privacy', label: 'Privacy Policy', sub: 'How we handle your data', icon: 'shield-outline', chevron: true },
+      { id: 'terms', label: 'Terms of Service', sub: 'The rules of using VELO', icon: 'document-text-outline', chevron: true },
     ],
   },
 ];
 
-const ROLE_LABEL: Record<Role, string> = { rider: 'Rider', driver: 'Driver' };
+// In Ghana the person operating the okada is the "rider"/driver, so the
+// customer booking a trip is labelled "Passenger" throughout the UI (the app's
+// internal role key stays 'rider').
+const ROLE_LABEL: Record<Role, string> = { rider: 'Passenger', driver: 'Driver' };
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, role, rides, driverStatus, logout, switchRole, navMarker, setNavMarker } = useApp();
+  const { user, role, rides, driverStatus, walletBalance, logout, switchRole, navMarker, setNavMarker } = useApp();
   const router = useRouter();
+  const [lang, setLang] = useState<LanguageCode>('en');
+
+  useEffect(() => { getLanguage().then(setLang); }, []);
   const isWeb = Platform.OS === 'web';
   const topPad = insets.top + (isWeb ? 67 : 0);
   const tabBarH = isWeb ? 84 : Math.max(insets.bottom, 8) + 66;
@@ -68,6 +89,8 @@ export default function ProfileScreen() {
   const completedRides = rides.filter((r) => r.status === 'completed').length;
   const totalSpent = rides.reduce((sum, r) => (r.status === 'completed' ? sum + r.price : sum), 0);
   const isDriver = role === 'driver';
+
+  const menuSections = buildMenuSections(languageLabel(lang));
 
   // Drivers get an extra "Driver" section with the verification flow.
   const sections = isDriver
@@ -78,9 +101,57 @@ export default function ProfileScreen() {
             { id: 'verify', label: 'Verification', sub: 'Ghana Card & motorcycle photos', icon: 'shield-checkmark-outline', iconColor: '#FFD000', chevron: true } as MenuItem,
           ],
         },
-        ...MENU_SECTIONS,
+        ...menuSections,
       ]
-    : MENU_SECTIONS;
+    : menuSections;
+
+  const chooseLanguage = () => {
+    Alert.alert('Language', 'Choose your preferred language', [
+      ...LANGUAGES.map((l) => ({
+        text: l.label,
+        onPress: () => { setLang(l.code); setLanguage(l.code).catch(() => {}); },
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
+
+  const shareLocation = async () => {
+    const active = rides.find((r) => r.status === 'accepted' || r.status === 'in_progress');
+    const msg = active
+      ? `I'm on a VELO ride from ${active.from} to ${active.to}. Track my trip and check in on me.`
+      : `I'm using VELO for my Okada rides in Ghana. I'll share my live trip with you next time I ride.`;
+    try {
+      await Share.share({ message: msg });
+    } catch {
+      /* user dismissed the share sheet — nothing to do */
+    }
+  };
+
+  const handleMenuPress = (id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    switch (id) {
+      case 'payment': return router.push('/payment-methods');
+      case 'history': return router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
+      case 'promo': return router.push('/referral');
+      case 'verify': return router.push('/driver-verify');
+      case 'track': return shareLocation();
+      case 'contacts': return router.push('/emergency-contacts');
+      case 'lang': return chooseLanguage();
+      case 'notif': return router.push('/notification-settings');
+      case 'help': return router.push('/faq');
+      case 'privacy': return router.push('/privacy-policy');
+      case 'terms': return router.push('/terms-of-service');
+      case 'sos':
+        return Alert.alert(
+          'Emergency SOS',
+          `Call Ghana emergency services (${EMERGENCY_NUMBER}) now?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
+          ]
+        );
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -114,6 +185,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: tabBarH + 16 }}
       >
+       <Bounded>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Profile</Text>
@@ -123,23 +195,27 @@ export default function ProfileScreen() {
         <View style={styles.userCard}>
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user?.name?.charAt(0).toUpperCase() ?? 'R'}
-              </Text>
+              {user?.photoURL ? (
+                <Image source={{ uri: user.photoURL }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {user?.name?.charAt(0).toUpperCase() ?? 'R'}
+                </Text>
+              )}
             </View>
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={10} color="#000" />
             </View>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName} numberOfLines={1}>{user?.name ?? 'Rider'}</Text>
+            <Text style={styles.userName} numberOfLines={1}>{user?.name ?? 'Passenger'}</Text>
             <Text style={styles.userPhone} numberOfLines={1}>+233 {user?.phone ?? ''}</Text>
             <View style={styles.veloTag}>
               <Ionicons name="shield-checkmark" size={12} color="#FFD000" />
               <Text style={styles.veloTagText}>Verified {ROLE_LABEL[role]}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.editBtn}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => router.push('/edit-profile')} activeOpacity={0.7}>
             <Ionicons name="create-outline" size={20} color="#FFD000" />
           </TouchableOpacity>
         </View>
@@ -171,7 +247,7 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statBox}>
-                <Text style={styles.statNum}>4.8</Text>
+                <Text style={styles.statNum}>{(user?.rating ?? 5).toFixed(1)}</Text>
                 <Text style={styles.statLbl}>Rating</Text>
               </View>
               <View style={styles.statDivider} />
@@ -214,6 +290,39 @@ export default function ProfileScreen() {
           );
         })()}
 
+        {/* Driver tier — climbs Standard → Premium → Okada Bossu with lifetime
+            rides + rating. Shows current tier and rides left to the next. */}
+        {isDriver && (() => {
+          const tp = tierProgress(driverStatus?.totalRides ?? 0, driverStatus?.rating ?? 5);
+          const EMOJI: Record<string, string> = { standard: '🛵', premium: '⚡', bossu: '👑' };
+          return (
+            <View style={styles.loyaltyCard}>
+              <View style={styles.loyaltyHeader}>
+                <Text style={styles.loyaltyTier}>{EMOJI[tp.tier]} {tp.current.label} driver</Text>
+                <View style={styles.loyaltyBadge}>
+                  <Text style={styles.loyaltyBadgeText}>{driverStatus?.totalRides ?? 0} rides</Text>
+                </View>
+              </View>
+              <Text style={styles.loyaltyPerk}>{tp.current.blurb}</Text>
+              {tp.next ? (
+                <>
+                  <View style={styles.loyaltyBarTrack}>
+                    <View style={[styles.loyaltyBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.loyaltyNext}>
+                    {tp.ridesToNext > 0
+                      ? `${tp.ridesToNext} more ${tp.ridesToNext === 1 ? 'ride' : 'rides'} to ${EMOJI[tp.next.tier]} ${tp.next.label}`
+                      : `Keep a ${tp.next.minRating.toFixed(1)}★ rating to reach ${EMOJI[tp.next.tier]} ${tp.next.label}`}
+                    {tp.ratingNeeded && tp.ridesToNext > 0 ? ` · needs ${tp.ratingNeeded.toFixed(1)}★` : ''}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.loyaltyNext}>You&apos;ve reached the top tier 🎉</Text>
+              )}
+            </View>
+          );
+        })()}
+
         {/* Role switcher */}
         <View style={styles.roleSwitchCard}>
           <Text style={styles.roleSwitchTitle}>Account Mode</Text>
@@ -242,7 +351,7 @@ export default function ProfileScreen() {
             <Ionicons name="wallet" size={24} color="#FFD000" />
             <View>
               <Text style={styles.walletLabel}>VELO Wallet</Text>
-              <Text style={styles.walletBalance}>₵ 0.00</Text>
+              <Text style={styles.walletBalance}>₵ {walletBalance.toFixed(2)}</Text>
             </View>
           </View>
           <View style={styles.walletAddBtn}>
@@ -260,34 +369,25 @@ export default function ProfileScreen() {
             <View style={styles.navIconRow}>
               {NAV_ICONS.map((ic) => {
                 const active = navMarker.icon === ic.id;
-                const Family = ic.family === 'mci' ? MaterialCommunityIcons : Ionicons;
                 return (
                   <TouchableOpacity
                     key={ic.id}
-                    style={[styles.navIconChip, active && { borderColor: navMarker.color, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                    style={[styles.navIconChip, active && styles.navIconChipActive]}
                     onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, icon: ic.id }); }}
                     activeOpacity={0.85}
                   >
-                    <View style={[styles.navIconPuck, { backgroundColor: active ? navMarker.color : '#1C1C1F' }]}>
-                      <Family name={ic.name as any} size={22} color={active ? (navMarker.color === '#FFFFFF' || navMarker.color === '#FFD000' ? '#000' : '#FFF') : '#A1A1AA'} />
+                    <View style={styles.navIconPuck}>
+                      <Image source={ic.source} style={styles.navIconImg} resizeMode="contain" />
                     </View>
                     <Text style={[styles.navIconLabel, active && { color: '#FFFFFF' }]}>{ic.label}</Text>
+                    {active && (
+                      <View style={styles.navIconCheck}>
+                        <Ionicons name="checkmark" size={12} color="#000" />
+                      </View>
+                    )}
                   </TouchableOpacity>
                 );
               })}
-            </View>
-
-            <View style={styles.navColorRow}>
-              {NAV_COLORS.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.navSwatch, { backgroundColor: c }, navMarker.color === c && styles.navSwatchActive]}
-                  onPress={() => { Haptics.selectionAsync(); setNavMarker({ ...navMarker, color: c }); }}
-                  activeOpacity={0.85}
-                >
-                  {navMarker.color === c && <Ionicons name="checkmark" size={16} color={c === '#FFFFFF' || c === '#FFD000' ? '#000' : '#FFF'} />}
-                </TouchableOpacity>
-              ))}
             </View>
           </View>
         )}
@@ -301,23 +401,7 @@ export default function ProfileScreen() {
                 <View key={item.id}>
                   <TouchableOpacity
                     style={styles.menuItem}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      if (item.id === 'payment') router.push('/payment-methods');
-                      if (item.id === 'history') router.push(isDriver ? '/driver-history' : '/(tabs)/rides');
-                      if (item.id === 'promo') router.push('/referral');
-                      if (item.id === 'verify') router.push('/driver-verify');
-                      if (item.id === 'sos') {
-                        Alert.alert(
-                          'Emergency SOS',
-                          `Call Ghana emergency services (${EMERGENCY_NUMBER}) now?`,
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: `Call ${EMERGENCY_NUMBER}`, style: 'destructive', onPress: callEmergency },
-                          ]
-                        );
-                      }
-                    }}
+                    onPress={() => handleMenuPress(item.id)}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.menuIconWrap, item.iconColor && { borderColor: item.iconColor + '30' }]}>
@@ -356,6 +440,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         <Text style={styles.version}>VELO v1.0.0 · Made in Ghana 🇬🇭</Text>
+       </Bounded>
       </ScrollView>
     </View>
   );
@@ -397,6 +482,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   avatarText: {
     fontSize: 26,
@@ -491,12 +581,17 @@ const styles = StyleSheet.create({
   navSub: { fontSize: 12, color: '#71717A', marginTop: 2, marginBottom: 14 },
   navIconRow: { flexDirection: 'row', gap: 10 },
   navIconChip: {
-    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12,
+    flex: 1, alignItems: 'center', gap: 8, paddingVertical: 14,
     borderRadius: 14, borderWidth: 1.5, borderColor: '#2A2A2D', backgroundColor: '#131316',
   },
+  navIconChipActive: { borderColor: '#FFD000', backgroundColor: 'rgba(255,208,0,0.08)' },
   navIconPuck: {
-    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.15)',
+    width: 52, height: 52, alignItems: 'center', justifyContent: 'center',
+  },
+  navIconImg: { width: 48, height: 48 },
+  navIconCheck: {
+    position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#FFD000', alignItems: 'center', justifyContent: 'center',
   },
   navIconLabel: { fontSize: 12, fontWeight: '700', color: '#A1A1AA' },
   navColorRow: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'center' },

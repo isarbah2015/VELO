@@ -4,6 +4,7 @@ import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 import VeloTabBar, { type TabDef } from '@/components/VeloTabBar';
 import { useApp } from '@/context/AppContext';
+import { useResponsive } from '@/hooks/useResponsive';
 
 const TAB_DEFS: TabDef[] = [
   { name: 'index', label: 'Dashboard', icon: 'grid-outline', iconActive: 'grid' },
@@ -39,7 +40,8 @@ function ClassicTabLayout() {
   return (
     <Tabs
       tabBar={(props) => <VeloTabBar {...props} tabDefs={TAB_DEFS} />}
-      screenOptions={{ headerShown: false }}
+      // Force bottom — RN v7 moves the bar to the top on large screens (iPad).
+      screenOptions={{ headerShown: false, tabBarPosition: 'bottom' }}
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="requests" />
@@ -51,9 +53,12 @@ function ClassicTabLayout() {
 
 export default function DriverTabLayout() {
   const { role } = useApp();
+  const { isTablet } = useResponsive();
   // Mirror of the rider guard — a rider must never land in the driver tabs.
   if (role !== 'driver') return <Redirect href="/(tabs)" />;
-  if (isLiquidGlassAvailable()) {
+  // Native tabs only on phones; iPad uses the bottom VeloTabBar (iPadOS puts
+  // native tab bars at the top).
+  if (isLiquidGlassAvailable() && !isTablet) {
     return <NativeTabLayout />;
   }
   return <ClassicTabLayout />;

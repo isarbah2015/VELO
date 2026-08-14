@@ -9,7 +9,7 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
-import { updateDriverLocation, updateRideStatus, watchRide } from '@/services/rides';
+import { updateDriverLocation, updateRideStatus, watchRide, saveRidePath } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
 import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
 import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
@@ -71,6 +71,7 @@ export default function DriverTripScreen() {
   const startRef = useRef(0); // trip start (inProgress)
   const arrivedRef = useRef(0); // arrived-at-pickup time
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const trailRef = useRef<{ lat: number; lng: number }[]>([]); // driver's GPS breadcrumbs
 
   // 1s ticker drives the wait timer (Stage 3) and elapsed time (Stage 4).
   useEffect(() => {
@@ -129,6 +130,7 @@ export default function DriverTripScreen() {
           (loc) => {
             setDriverPos([loc.coords.longitude, loc.coords.latitude]);
             updateDriverLocation(rideId, loc.coords.latitude, loc.coords.longitude);
+            trailRef.current.push({ lat: loc.coords.latitude, lng: loc.coords.longitude });
           }
         );
       } catch {
@@ -234,6 +236,9 @@ export default function DriverTripScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const durationMin = Math.max(1, Math.round((Date.now() - startRef.current) / 60000));
     watchRef.current?.remove();
+    // Persist the travelled trail so the completed trip can redraw the real
+    // route the driver took (best-effort; empty on a no-GPS simulator run).
+    try { await saveRidePath(rideId, trailRef.current); } catch { /* non-critical */ }
     await safeStatus('completed', { durationMin });
     try {
       if (user) {
@@ -411,6 +416,37 @@ export default function DriverTripScreen() {
     return target ? bearing(navPos, target) : 0;
   })();
 
+  // Demo/simulator movement: when there's no plausibly-nearby GPS fix (the iOS
+  // simulator sits in San Francisco, far from an Accra trip), walk a synthetic
+  // vehicle along the route polyline so the ride actually *moves* on screen.
+  // On a real device in-region this stays off and the live GPS drives the puck.
+  const gpsNear = !!(driverPos && target && distanceKm(driverPos, target) < 35);
+  const [simPos, setSimPos] = useState<LngLat | null>(null);
+  const [simHeading, setSimHeading] = useState(0);
+  useEffect(() => {
+    const coords = route?.coords;
+    const active = phase === 'toPickup' || phase === 'inProgress';
+    if (gpsNear || !active || !coords || coords.length < 2) {
+      setSimPos(null);
+      return;
+    }
+    let i = 0;
+    setSimPos(coords[0]);
+    const t = setInterval(() => {
+      const next = coords[Math.min(i + 1, coords.length - 1)];
+      const cur = coords[i];
+      if (next && (next[0] !== cur[0] || next[1] !== cur[1])) setSimHeading(bearing(cur, next));
+      i = Math.min(i + 1, coords.length - 1);
+      setSimPos(coords[i]);
+      if (i >= coords.length - 1) clearInterval(t);
+    }, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legKey, gpsNear, phase, route]);
+
+  const effDriver: LngLat | null = simPos ?? navPos;
+  const effHeading = simPos ? simHeading : navHeading;
+
   // Premium touches: a soft entrance + a pulsing "live" dot on the ETA card.
   const enter = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -436,8 +472,8 @@ export default function DriverTripScreen() {
           mode="route"
           pickup={pickupLL}
           dest={destLL}
-          driver={navPos}
-          heading={navHeading}
+          driver={effDriver}
+          heading={effHeading}
           rider={riderPos}
           routeLine={route?.coords ?? null}
           follow={phase === 'toPickup' || phase === 'inProgress'}

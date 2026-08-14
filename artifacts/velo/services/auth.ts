@@ -6,7 +6,8 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '@/config/firebase';
 import { makeReferralCode } from './referrals';
 
 export type Role = 'rider' | 'driver';
@@ -16,8 +17,10 @@ export interface UserProfile {
   phone: string;
   role: Role;
   walletBalance: number;
+  rating?: number; // rider's star rating (drivers keep theirs on the driver doc)
   referralCode?: string;
   referredBy?: string;
+  photoURL?: string; // profile picture download URL (Firebase Storage)
 }
 
 const DEFAULT_DRIVER_DOC = {
@@ -46,6 +49,7 @@ export async function register(name: string, phone: string, password: string, ro
     phone,
     role,
     walletBalance: 0,
+    rating: 5.0, // new riders start at a perfect 5.0
     referralCode: makeReferralCode(name, cred.user.uid),
     createdAt: serverTimestamp(),
   });
@@ -67,7 +71,7 @@ export async function ensureGoogleProfile(user: FirebaseUser): Promise<void> {
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
   if (snap.exists()) return;
-  const name = user.displayName || user.email?.split('@')[0] || 'VELO Rider';
+  const name = user.displayName || user.email?.split('@')[0] || 'VELO Passenger';
   await setDoc(ref, {
     name,
     phone: '',
@@ -90,6 +94,24 @@ export function onAuthChange(callback: (user: FirebaseUser | null) => void) {
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   const snap = await getDoc(doc(db, 'users', uid));
   return snap.exists() ? (snap.data() as UserProfile) : null;
+}
+
+// Update the rider/driver's display name from the edit-profile screen.
+export async function updateUserName(uid: string, name: string) {
+  await updateDoc(doc(db, 'users', uid), { name: name.trim() });
+}
+
+// Upload a picked profile photo to Storage and persist its URL on the user doc.
+// RN has no File/Blob from a path, so we fetch the local uri into a blob first
+// (same approach as driver verification uploads).
+export async function updateUserPhoto(uid: string, uri: string): Promise<string> {
+  const res = await fetch(uri);
+  const blob = await res.blob();
+  const storageRef = ref(storage, `avatars/${uid}/avatar.jpg`);
+  await uploadBytes(storageRef, blob);
+  const url = await getDownloadURL(storageRef);
+  await updateDoc(doc(db, 'users', uid), { photoURL: url });
+  return url;
 }
 
 // Switching into Driver mode for the first time provisions the drivers/{uid}

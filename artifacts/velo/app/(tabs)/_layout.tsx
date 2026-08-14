@@ -4,6 +4,7 @@ import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import { NativeTabs, Icon, Label } from 'expo-router/unstable-native-tabs';
 import VeloTabBar, { type TabDef } from '@/components/VeloTabBar';
 import { useApp } from '@/context/AppContext';
+import { useResponsive } from '@/hooks/useResponsive';
 
 const TAB_DEFS: TabDef[] = [
   { name: 'index', label: 'Home', icon: 'home-outline', iconActive: 'home' },
@@ -34,7 +35,9 @@ function ClassicTabLayout() {
   return (
     <Tabs
       tabBar={(props) => <VeloTabBar {...props} tabDefs={TAB_DEFS} />}
-      screenOptions={{ headerShown: false }}
+      // Force the bar to the bottom — RN v7 otherwise moves it to the top on
+      // large screens (iPad), leaving our floating bar stranded up top.
+      screenOptions={{ headerShown: false, tabBarPosition: 'bottom' }}
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="rides" />
@@ -45,11 +48,15 @@ function ClassicTabLayout() {
 
 export default function TabLayout() {
   const { role } = useApp();
+  const { isTablet } = useResponsive();
   // Role is the source of truth for which tab set shows. If a driver lands here
   // (e.g. the initial redirect fired before the profile role loaded), bounce to
   // the driver tabs.
   if (role === 'driver') return <Redirect href="/(driver-tabs)" />;
-  if (isLiquidGlassAvailable()) {
+  // Native tabs only on phones. On iPad, iPadOS renders the native tab bar as
+  // a pill at the TOP — off-brand and jarring here — so tablets use the
+  // floating VeloTabBar pinned to the bottom instead.
+  if (isLiquidGlassAvailable() && !isTablet) {
     return <NativeTabLayout />;
   }
   return <ClassicTabLayout />;

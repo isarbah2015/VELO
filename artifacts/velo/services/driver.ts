@@ -2,6 +2,7 @@ import { doc, updateDoc, getDoc, serverTimestamp, runTransaction } from 'firebas
 import { db } from '@/config/firebase';
 import { updateRideStatus } from './rides';
 import type { VerificationData } from './verification';
+import { driverPayout } from './pricing';
 
 export interface DriverStatus {
   online: boolean;
@@ -96,14 +97,17 @@ export async function declineRide(rideId: string) {
 // accept/decline, so "accepted" and "earned" happen together.
 export async function recordCompletedRide(driverId: string, fare: number) {
   const ref = doc(db, 'drivers', driverId);
+  // The driver keeps their payout (fare minus VELO's 10% service fee); the fee
+  // is the platform's revenue. The rider is still charged the full fare.
+  const payout = driverPayout(fare);
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.data() ?? {};
     const weekly: number[] = data.weeklyEarnings ?? [0, 0, 0, 0, 0, 0, 0];
     const todayIdx = new Date().getDay();
-    weekly[todayIdx] = (weekly[todayIdx] ?? 0) + fare;
+    weekly[todayIdx] = (weekly[todayIdx] ?? 0) + payout;
     tx.update(ref, {
-      todayEarnings: (data.todayEarnings ?? 0) + fare,
+      todayEarnings: (data.todayEarnings ?? 0) + payout,
       ridesToday: (data.ridesToday ?? 0) + 1,
       totalRides: (data.totalRides ?? 0) + 1,
       weeklyEarnings: weekly,

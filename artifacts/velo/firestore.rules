@@ -7,6 +7,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Admin/ops: any signed-in user with a doc at admins/{uid}. Used by the VELO
+    // Admin web panel to review drivers, monitor trips and triage disputes.
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if false; // provisioned out-of-band (console / server), never from a client
+    }
+
     // Every rider/driver account: profile, role, wallet balance.
     match /users/{userId} {
       allow read: if signedIn();
@@ -26,7 +37,8 @@ service cloud.firestore {
     // rides can read a driver's live status without touching their wallet.
     match /drivers/{driverId} {
       allow read: if signedIn();
-      allow write: if signedIn() && request.auth.uid == driverId;
+      // The driver owns their doc; an admin may set verification status etc.
+      allow write: if isAdmin() || (signedIn() && request.auth.uid == driverId);
     }
 
     // A ride is visible to its rider, its assigned driver, and — while still
@@ -38,11 +50,11 @@ service cloud.firestore {
     // Riders create their own rides; either party updates status
     // (accept/decline/cancel/complete).
     match /rides/{rideId} {
-      allow read: if signedIn() && (
+      allow read: if isAdmin() || (signedIn() && (
         resource.data.riderId == request.auth.uid ||
         resource.data.driverId == request.auth.uid ||
         resource.data.status == 'requested'
-      );
+      ));
       allow create: if signedIn() && request.resource.data.riderId == request.auth.uid;
       allow update: if signedIn() && (resource.data.riderId == request.auth.uid || resource.data.driverId == request.auth.uid || (resource.data.driverId == null && request.resource.data.driverId == request.auth.uid));
 
@@ -56,6 +68,15 @@ service cloud.firestore {
           ride().riderId == request.auth.uid || ride().driverId == request.auth.uid
         );
       }
+    }
+
+    // Trip disputes / problem reports. A signed-in user files their own report
+    // and can read it back; only an admin/ops backend (service account, which
+    // bypasses rules) triages or updates them.
+    match /disputes/{disputeId} {
+      allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow read: if isAdmin() || (signedIn() && resource.data.reporterId == request.auth.uid);
+      allow update: if isAdmin(); // triage / resolve from the admin panel
     }
   }
 }

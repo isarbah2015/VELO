@@ -13,7 +13,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import LiveMap from '@/components/LiveMap';
+import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
+import MapControls from '@/components/MapControls';
 import { useApp, type Ride } from '@/context/AppContext';
 import { watchDriverRequests } from '@/services/rides';
 import { acceptRide, declineRide, RideUnavailableError } from '@/services/driver';
@@ -44,6 +45,16 @@ export default function DriverHomeScreen() {
   const tp = tierProgress(driverStatus?.totalRides ?? 0, driverStatus?.rating ?? 5);
   const router = useRouter();
   const seenIds = useRef<Set<string>>(new Set());
+  const mapRef = useRef<LiveMapHandle>(null);
+  const [showMapCtrl, setShowMapCtrl] = useState(false);
+  const ctrlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Reveal the map controls on a tap, then auto-hide after 5s of no use.
+  const revealMapCtrl = () => {
+    setShowMapCtrl(true);
+    if (ctrlTimer.current) clearTimeout(ctrlTimer.current);
+    ctrlTimer.current = setTimeout(() => setShowMapCtrl(false), 5000);
+  };
+  useEffect(() => () => { if (ctrlTimer.current) clearTimeout(ctrlTimer.current); }, []);
   // Driver's current position, for nearest-request dispatch ordering.
   const [driverLL, setDriverLL] = useState<[number, number] | null>(null);
   const [accepting, setAccepting] = useState(false);
@@ -230,9 +241,18 @@ export default function DriverHomeScreen() {
 
       {/* Full-screen map with the rider-demand heatmap (Yandex-Pro style) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap width={width} height={height} mode="nearby" showDemand navMarker={navMarker} />
+        <LiveMap ref={mapRef} width={width} height={height} mode="nearby" showDemand navMarker={navMarker} centerOnUser onMapTap={revealMapCtrl} />
       </View>
       <View style={styles.mapDim} pointerEvents="none" />
+
+      {/* Tap-to-reveal zoom + recenter controls, right side, auto-hiding. */}
+      <MapControls
+        visible={showMapCtrl}
+        top={insets.top + height * 0.24}
+        onZoomIn={() => { mapRef.current?.zoomIn(); revealMapCtrl(); }}
+        onZoomOut={() => { mapRef.current?.zoomOut(); revealMapCtrl(); }}
+        onRecenter={() => { mapRef.current?.recenter(); revealMapCtrl(); }}
+      />
 
       {/* Top status strip — no boxed card, floats over the map */}
       <View style={[styles.topStrip, { paddingTop: topPad + 8 }]}>
@@ -253,25 +273,7 @@ export default function DriverHomeScreen() {
 
       {/* Bottom action panel */}
       <View style={[styles.bottomWrap, { bottom: tabBarH + 8 }]}>
-        {/* Driver tier + promotion progress — sits just above the status panel */}
-        {!incoming && (
-          <View style={styles.tierPill}>
-            <Ionicons name={tp.tier === 'bossu' ? 'flash' : tp.tier === 'premium' ? 'shield-checkmark' : 'speedometer'} size={14} color="#FFD000" />
-            <Text style={styles.tierName}>{tp.current.label}</Text>
-            {tp.next ? (
-              <>
-                <View style={styles.tierBarTrack}>
-                  <View style={[styles.tierBarFill, { width: `${Math.round(tp.ridesProgress * 100)}%` }]} />
-                </View>
-                <Text style={styles.tierNext} numberOfLines={1}>
-                  {tp.ridesToNext > 0 ? `${tp.ridesToNext} rides` : 'keep rating'}{tp.ratingNeeded ? ` +${tp.ratingNeeded}★` : ''} → {tp.next.label}
-                </Text>
-              </>
-            ) : (
-              <Text style={styles.tierNext}>Top tier 🎉</Text>
-            )}
-          </View>
-        )}
+        {/* Driver tier now lives on the Profile screen — not duplicated here. */}
 
         {/* Verification gate banner — an unverified/pending/rejected driver
             can't go online, so surface a clear CTA to finish verification. */}
