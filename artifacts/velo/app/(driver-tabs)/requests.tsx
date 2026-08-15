@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Platform,
   RefreshControl,
@@ -11,12 +12,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useApp, type Ride } from '@/context/AppContext';
 import { getDriverRequests } from '@/services/rides';
-import { acceptRide, declineRide, recordCompletedRide } from '@/services/driver';
+import { acceptRide, declineRide, RideUnavailableError } from '@/services/driver';
 
 function RequestCard({ ride, onAccept, onDecline }: { ride: Ride; onAccept: () => void; onDecline: () => void }) {
   return (
@@ -58,7 +60,8 @@ function RequestCard({ ride, onAccept, onDecline }: { ride: Ride; onAccept: () =
 
 export default function DriverRequestsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, refreshDriverStatus } = useApp();
+  const router = useRouter();
+  const { user } = useApp();
   const [requests, setRequests] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const isWeb = Platform.OS === 'web';
@@ -78,15 +81,45 @@ export default function DriverRequestsScreen() {
 
   const respond = async (ride: Ride, accepted: boolean) => {
     if (!user) return;
-    Haptics.notificationAsync(accepted ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning);
-    setRequests((prev) => prev.filter((r) => r.id !== ride.id));
-    if (accepted) {
-      await acceptRide(ride.id, user.uid, user.name);
-      await recordCompletedRide(user.uid, ride.price);
-      await refreshDriverStatus();
-    } else {
+    if (!accepted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setRequests((prev) => prev.filter((r) => r.id !== ride.id));
       await declineRide(ride.id);
+      return;
     }
+    // Accept path mirrors the dashboard: claim the ride in a transaction, and
+    // only proceed into the live trip if we actually won it. Earnings are
+    // credited once the trip is COMPLETED in /driver-trip — never on accept —
+    // so a ride is not double-counted and the fare still settles server-side.
+    try {
+      await acceptRide(ride.id, user.uid, user.name);
+    } catch (e) {
+      if (e instanceof RideUnavailableError) {
+        setRequests((prev) => prev.filter((r) => r.id !== ride.id));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert('Just taken', 'Another driver grabbed this ride first.');
+        return;
+      }
+      throw e;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setRequests((prev) => prev.filter((r) => r.id !== ride.id));
+    router.push({
+      pathname: '/driver-trip',
+      params: {
+        rideId: ride.id,
+        riderName: ride.riderName,
+        riderPhone: ride.riderPhone ?? '',
+        from: ride.from,
+        to: ride.to,
+        price: String(ride.price),
+        type: ride.type,
+        fromLat: String(ride.fromCoord?.lat ?? ''),
+        fromLng: String(ride.fromCoord?.lng ?? ''),
+        toLat: String(ride.toCoord?.lat ?? ''),
+        toLng: String(ride.toCoord?.lng ?? ''),
+      },
+    });
   };
 
   return (

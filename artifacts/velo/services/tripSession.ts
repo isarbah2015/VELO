@@ -24,6 +24,7 @@ export type ActiveTrip = {
   from?: string;
   to?: string;
   price?: string;
+  type?: string; // ride tier, so a resumed trip's fare breakdown is correct
   fromLat?: string;
   fromLng?: string;
   toLat?: string;

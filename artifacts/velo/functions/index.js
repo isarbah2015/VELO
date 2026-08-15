@@ -58,6 +58,10 @@ async function settleRide(rideId) {
       const method = ride.paymentMethod || 'cash';
       const riderId = ride.riderId;
 
+      // Only wallet rides are settled in-app. 'cash' and 'momo' are paid to the
+      // driver directly (hand-to-hand cash or a MoMo transfer) — VELO has no
+      // in-app MoMo charge rail (Paystack only tops up the wallet), so there is
+      // deliberately nothing to debit here for those methods.
       if (method === 'wallet' && riderId && fare > 0) {
         const userRef = db.doc(`users/${riderId}`);
         const userSnap = await tx.get(userRef);

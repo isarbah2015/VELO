@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import LiveMap from '@/components/LiveMap';
 import { getRoute, geocode, distanceKm as haversineKm, type LngLat, type RouteResult } from '@/services/geo';
+import { platformFee, COMMISSION_RATE } from '@/services/pricing';
 
 const { width } = Dimensions.get('window');
 
@@ -59,8 +60,11 @@ export default function RideDetailScreen() {
     : route?.coords ?? null;
 
   const total = ride.price;
-  const serviceFee = Math.round(total * 0.12 * 100) / 100;
+  // Split the fare the same way the platform actually settles it (pricing.ts):
+  // VELO's service fee is COMMISSION_RATE of the fare; the rest is the ride cost.
+  const serviceFee = platformFee(total);
   const baseFare = Math.round((total - serviceFee) * 100) / 100;
+  const feePct = Math.round(COMMISSION_RATE * 100);
   const distKm = route?.distanceKm ?? (pickup && drop ? haversineKm(pickup, drop) : undefined);
   const dateStr = new Date(ride.date).toLocaleString('en-GH', { dateStyle: 'medium', timeStyle: 'short' });
   const mapH = Dimensions.get('window').height * 0.46;
@@ -130,7 +134,7 @@ export default function RideDetailScreen() {
         {/* Fare */}
         <View style={styles.card}>
           <Row label="Base fare" value={`₵${baseFare.toFixed(2)}`} />
-          <Row label="Service fee (12%)" value={`₵${serviceFee.toFixed(2)}`} />
+          <Row label={`Service fee (${feePct}%)`} value={`₵${serviceFee.toFixed(2)}`} />
           <View style={styles.divider} />
           <Row label="Total" value={`₵${total.toFixed(2)}`} bold />
           <Row label="Paid with" value={ride.paymentMethod ?? 'Cash'} />

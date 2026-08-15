@@ -11,6 +11,7 @@ import LiveMap from '@/components/LiveMap';
 import { useApp } from '@/context/AppContext';
 import { updateDriverLocation, updateRideStatus, watchRide, saveRidePath } from '@/services/rides';
 import { recordCompletedRide } from '@/services/driver';
+import { FARE, type RideType } from '@/services/pricing';
 import { bearing, distanceKm, distanceToPathKm, etaMinutes, getRoute, maneuverText, type RouteResult } from '@/services/geo';
 import { setVoiceMuted, speak, stopVoice } from '@/services/voice';
 import {
@@ -45,7 +46,7 @@ export default function DriverTripScreen() {
   const { user, refreshDriverStatus, navMarker } = useApp();
   const params = useLocalSearchParams<{
     rideId: string; riderName?: string; riderPhone?: string; from?: string; to?: string; price?: string;
-    fromLat?: string; fromLng?: string; toLat?: string; toLng?: string;
+    type?: string; fromLat?: string; fromLng?: string; toLat?: string; toLng?: string;
   }>();
 
   const rideId = params.rideId;
@@ -54,6 +55,7 @@ export default function DriverTripScreen() {
   const from = params.from ?? 'Pickup';
   const to = params.to ?? 'Destination';
   const price = parseFloat(params.price ?? '0');
+  const rideType: RideType = params.type === 'Premium' || params.type === 'Bossu' ? params.type : 'Standard';
 
   const toLL = (lat?: string, lng?: string): LngLat | undefined => {
     const a = parseFloat(lat ?? ''); const o = parseFloat(lng ?? '');
@@ -157,6 +159,7 @@ export default function DriverTripScreen() {
       from: params.from,
       to: params.to,
       price: params.price,
+      type: params.type,
       fromLat: params.fromLat,
       fromLng: params.fromLng,
       toLat: params.toLat,
@@ -305,8 +308,9 @@ export default function DriverTripScreen() {
   }, [driverPos, phase]);
   const statusLine =
     phase === 'toPickup' ? 'to pickup' : phase === 'inProgress' ? 'to destination' : '';
-  // Fare breakdown for the Stage-5 summary.
-  const baseFare = 5;
+  // Fare breakdown for the Stage-5 summary — base comes from the tier's real
+  // flag-fall (pricing.ts), not a hardcoded guess, so it reconciles with price.
+  const baseFare = FARE[rideType].base;
   const distanceFare = Math.max(0, price - baseFare);
 
   // Navigation target: the rider's pickup while heading there, then the
