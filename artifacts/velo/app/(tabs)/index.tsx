@@ -224,7 +224,9 @@ export default function HomeScreen() {
         from: pickup,
         to: destination,
         type: rideTypeFor(selectedBike.id),
-        price: String(effFare(selectedBike.id)),
+        // The actual confirmed fare (loyalty + promo applied), not the
+        // loyalty-only estimate — so tracking matches what will be charged.
+        price: String(searchInfo?.fare ?? effFare(selectedBike.id)),
         driverName: matchedRide?.driverName ?? 'Your VELO driver',
         driverRating: String(matchedRide?.driverRating ?? '4.8'),
         driverPhone: matchedRide?.driverPhone ?? '',
