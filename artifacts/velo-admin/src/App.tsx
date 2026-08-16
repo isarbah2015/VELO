@@ -145,7 +145,11 @@ function Dashboard({ drivers }: { drivers: AnyDoc[] }) {
   const disputes = useCollection('disputes');
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ridesToday = rides.filter((r) => new Date(r.date ?? 0).getTime() >= today.getTime());
-  const revenueToday = ridesToday.filter((r) => r.status === 'completed').reduce((s, r) => s + (r.price ?? 0), 0);
+  // VELO's flat service fee — keep in sync with services/pricing.ts COMMISSION_RATE.
+  const COMMISSION_RATE = 0.10;
+  const grossToday = ridesToday.filter((r) => r.status === 'completed').reduce((s, r) => s + (r.price ?? 0), 0);
+  // Platform revenue is the commission, NOT the full fare (drivers keep 90%).
+  const revenueToday = grossToday * COMMISSION_RATE;
   const live = rides.filter((r) => ['accepted', 'arrived', 'in_progress'].includes(r.status)).length;
   const stats = [
     { label: 'Drivers', value: drivers.length },
@@ -153,7 +157,8 @@ function Dashboard({ drivers }: { drivers: AnyDoc[] }) {
     { label: 'Live trips', value: live },
     { label: 'Open disputes', value: disputes.filter((d) => d.status === 'open').length },
     { label: 'Rides today', value: ridesToday.length },
-    { label: 'Revenue today', value: `₵${revenueToday.toFixed(0)}` },
+    { label: 'Revenue today (10% fee)', value: `₵${revenueToday.toFixed(0)}` },
+    { label: 'Ride value today (gross)', value: `₵${grossToday.toFixed(0)}` },
     { label: 'Online drivers', value: drivers.filter((d) => d.online).length },
     { label: 'Verified drivers', value: drivers.filter((d) => d.verification?.status === 'verified').length },
   ];
