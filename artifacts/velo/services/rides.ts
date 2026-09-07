@@ -1,5 +1,5 @@
 import {
-  collection, doc, addDoc, updateDoc, getDocs, query, where, orderBy,
+  collection, doc, addDoc, updateDoc, getDoc, getDocs, query, where, orderBy,
   onSnapshot, runTransaction, type Unsubscribe, type FieldValue,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -82,6 +82,29 @@ export async function updateRiderLocation(rideId: string, lat: number, lng: numb
 export async function saveRidePath(rideId: string, path: { lat: number; lng: number }[]) {
   if (path.length < 2) return;
   await updateDoc(doc(db, 'rides', rideId), { path });
+}
+
+// Public web origin the "Share" buttons link to — Firebase Hosting for this
+// project (see firebase.json `hosting` + public-tracking/). Override for a
+// custom domain via EXPO_PUBLIC_TRACKING_ORIGIN if one is set up later.
+const TRACKING_ORIGIN =
+  process.env.EXPO_PUBLIC_TRACKING_ORIGIN?.replace(/\/$/, '') || 'https://velo-ride-gh.web.app';
+
+// Turns on the public tracking mirror for this ride (mirrorRideForSharing
+// Cloud Function then keeps publicTracking/{rideId} in sync) and returns the
+// link to send. Anyone with the link can see it — no VELO account needed —
+// so it deliberately never turns on until the rider actually taps Share, and
+// the server drops the mirror once the trip is over (see the function).
+export async function enableSharing(rideId: string): Promise<string> {
+  await updateDoc(doc(db, 'rides', rideId), { sharingEnabled: true });
+  return `${TRACKING_ORIGIN}/track/${rideId}`;
+}
+
+// One-off read (chat.tsx uses this to resolve the other party's uid to block,
+// which the fields the chat screen is opened with don't carry).
+export async function getRide(rideId: string): Promise<Ride | null> {
+  const snap = await getDoc(doc(db, 'rides', rideId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Ride) : null;
 }
 
 export function watchRide(rideId: string, callback: (ride: Ride | null) => void): Unsubscribe {

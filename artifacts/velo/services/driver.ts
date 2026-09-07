@@ -45,7 +45,7 @@ export async function getDriverStatus(uid: string): Promise<DriverStatus | null>
 // the ride (or the rider cancelled). The UI catches this to show a friendly
 // "just taken" message instead of silently double-assigning.
 export class RideUnavailableError extends Error {
-  constructor(public reason: 'taken' | 'gone' | 'cancelled') {
+  constructor(public reason: 'taken' | 'gone' | 'cancelled' | 'blocked') {
     super(reason);
     this.name = 'RideUnavailableError';
   }
@@ -59,6 +59,7 @@ export class RideUnavailableError extends Error {
 export async function acceptRide(rideId: string, driverId: string, driverName: string) {
   const ref = doc(db, 'rides', rideId);
   const driverRef = doc(db, 'drivers', driverId);
+  const driverUserRef = doc(db, 'users', driverId);
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new RideUnavailableError('gone');
@@ -69,6 +70,18 @@ export async function acceptRide(rideId: string, driverId: string, driverName: s
     if (data.driverId && data.driverId !== driverId) throw new RideUnavailableError('taken');
     if (data.status !== 'requested' && data.status !== 'accepted') {
       throw new RideUnavailableError('taken');
+    }
+    // Neither side of a block gets matched with the other again — checked both
+    // ways since either the rider could have blocked this driver, or vice
+    // versa. Mirrored in firestore.rules so a modified client can't skip this.
+    const [riderUserSnap, driverUserSnap] = await Promise.all([
+      tx.get(doc(db, 'users', data.riderId)),
+      tx.get(driverUserRef),
+    ]);
+    const riderBlocked: string[] = riderUserSnap.data()?.blockedUserIds ?? [];
+    const driverBlocked: string[] = driverUserSnap.data()?.blockedUserIds ?? [];
+    if (riderBlocked.includes(driverId) || driverBlocked.includes(data.riderId)) {
+      throw new RideUnavailableError('blocked');
     }
     // Stamp the driver's verified vehicle onto the ride so the rider can be told
     // exactly which bike + plate to look for (read inside the txn, no extra RTT).
@@ -92,9 +105,9 @@ export async function declineRide(rideId: string) {
 
 // Rolls a completed ride's fare into the driver's running totals atomically,
 // since two rides finishing close together must not clobber each other's
-// increment. Accepting a request is treated as completing it immediately —
-// this app has no separate driver-side live-tracking screen, only
-// accept/decline, so "accepted" and "earned" happen together.
+// increment. Called from the drop-off step of the driver's live trip screen
+// (app/driver-trip.tsx), not on accept — a driver only earns once the ride is
+// actually completed.
 export async function recordCompletedRide(driverId: string, fare: number) {
   const ref = doc(db, 'drivers', driverId);
   // The driver keeps their payout (fare minus VELO's 10% service fee); the fee

@@ -215,6 +215,38 @@ export async function geocode(address: string): Promise<LngLat | null> {
     } catch {
       // fall through
     }
+    // The native geocoder (Apple/Google Maps data) frequently can't resolve
+    // Ghanaian place names it doesn't recognize — fall back to the same OSM
+    // Photon search that already powers the address-autocomplete dropdown,
+    // so anything the rider could pick as a suggestion also prices correctly
+    // if they typed it out instead.
+    try {
+      const [first] = await searchPlaces(q);
+      if (first) return first.coord;
+    } catch {
+      // fall through
+    }
     return null;
+  });
+}
+
+// Turns real GPS coordinates into a human-readable address — used to seed the
+// rider's "Pickup location" field with where they actually are, instead of
+// leaving it on a hardcoded placeholder that has nothing to do with the map's
+// live GPS puck. Rounded to ~11m for the cache key so nearby fixes reuse it.
+export async function reverseGeocode(coord: LngLat): Promise<string | null> {
+  const key = `revgeo:${coord[1].toFixed(4)},${coord[0].toFixed(4)}`;
+  return cached(key, DAY, async () => {
+    try {
+      const [place] = await Location.reverseGeocodeAsync({ latitude: coord[1], longitude: coord[0] });
+      if (!place) return null;
+      const label = [place.name, place.street, place.district ?? place.subregion, place.city]
+        .filter((v, i, arr) => !!v && arr.indexOf(v) === i) // drop empties + dupes (name often equals street)
+        .slice(0, 2)
+        .join(', ');
+      return label || null;
+    } catch {
+      return null;
+    }
   });
 }

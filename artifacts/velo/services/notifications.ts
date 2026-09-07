@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 // Foreground behaviour: still show an alert + play the sound so a driver
@@ -66,38 +66,5 @@ export async function notifyLocal(title: string, body: string, data: Record<stri
     });
   } catch {
     // ignore — notifications are best-effort
-  }
-}
-
-// Push to another user across devices via Expo's push service. Reads the
-// recipient's stored tokens and posts to the Expo endpoint. This is a
-// client-side convenience for a two-phone demo; a production app would send
-// this from a trusted backend / Cloud Function instead.
-export async function pushToUser(
-  uid: string,
-  title: string,
-  body: string,
-  data: Record<string, unknown> = {}
-) {
-  try {
-    const snap = await getDoc(doc(db, 'users', uid));
-    const tokens: string[] = snap.data()?.pushTokens ?? [];
-    if (!tokens.length) return;
-    const messages = tokens.map((to) => ({
-      to,
-      sound: 'default',
-      title,
-      body,
-      data,
-      channelId: 'rides',
-      priority: 'high',
-    }));
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(messages),
-    });
-  } catch {
-    // best-effort
   }
 }

@@ -9,15 +9,23 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Build outputs / CLI caches
+build/
+.firebase/
+
 # Native
 ios/
 android/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# Android release signing — see keystores/README.md. Never commit this.
+keystores/
 
 # Metro
 .metro-health-check*

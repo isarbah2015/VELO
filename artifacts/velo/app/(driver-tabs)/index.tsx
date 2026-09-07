@@ -218,6 +218,10 @@ export default function DriverHomeScreen() {
       const reason =
         e instanceof RideUnavailableError && e.reason === 'cancelled'
           ? 'The rider cancelled this request.'
+          // Deliberately doesn't say "you were blocked" — same neutral wording
+          // whichever side blocked whom, so it can't be used to confirm a block.
+          : e instanceof RideUnavailableError && e.reason === 'blocked'
+          ? 'This ride isn’t available to you.'
           : 'Another driver just took this ride.';
       Alert.alert('Ride unavailable', reason);
     } finally {

@@ -108,7 +108,7 @@ You may request deletion of your account and associated data at any time through
 • Request restriction of processing
 • Data portability (receive your data in a structured format)
 
-To exercise any of these rights, please contact us at privacy@velo-ride.com.`,
+To exercise any of these rights, please contact us at westhubsupport@gmail.com.`,
   },
   {
     title: '9. Children\'s Privacy',
@@ -124,10 +124,10 @@ You are advised to review this Privacy Policy periodically for any changes. Chan
     title: '11. Contact Us',
     body: `If you have any questions about this Privacy Policy, please contact us:
 
-• Email: privacy@velo-ride.com
+• Email: westhubsupport@gmail.com
 • Phone: +233 30 123 4567
 • Address: VELO Technologies Ltd., Accra, Ghana
-• Website: www.velo-ride.com
+• Support: https://velo-ride-gh.web.app/support
 
 Effective Date: July 30, 2026`,
   },

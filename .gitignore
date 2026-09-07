@@ -47,3 +47,17 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Secrets backup — never track any of this
+BACKUP DON'T DELETE/
+*.env.bak
+*.env.local.bak
+*.jks
+*.bak.jks
+*.p8
+*.p12
+*.keystore
+*.mobileprovision
+google-services*.json
+google-services*.json.bak
+*-credentials.bak.md

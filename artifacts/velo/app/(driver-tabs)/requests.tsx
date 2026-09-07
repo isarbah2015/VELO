@@ -97,7 +97,12 @@ export default function DriverRequestsScreen() {
       if (e instanceof RideUnavailableError) {
         setRequests((prev) => prev.filter((r) => r.id !== ride.id));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        Alert.alert('Just taken', 'Another driver grabbed this ride first.');
+        // Deliberately doesn't say "you were blocked" — same neutral wording
+        // whichever side blocked whom, so it can't be used to confirm a block.
+        Alert.alert(
+          e.reason === 'blocked' ? 'Not available' : 'Just taken',
+          e.reason === 'blocked' ? 'This ride isn’t available to you.' : 'Another driver grabbed this ride first.'
+        );
         return;
       }
       throw e;

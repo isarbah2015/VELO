@@ -25,10 +25,12 @@ import { applyRiderDiscount } from '@/services/riderTiers';
 import { applyPromo } from '@/services/promo';
 import { getOnlineDriverCount } from '@/services/driver';
 import { estimateFare, rateLabel } from '@/services/pricing';
-import { watchRide, expireRide, REQUEST_TTL_MS } from '@/services/rides';
-import { searchPlaces, type PlaceSuggestion } from '@/services/geo';
+import { watchRide, expireRide, enableSharing, REQUEST_TTL_MS } from '@/services/rides';
+import { searchPlaces, reverseGeocode, geocode, getRoute, distanceKm, etaMinutes, type PlaceSuggestion } from '@/services/geo';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import CancelReasonSheet from '@/components/CancelReasonSheet';
+import { RIDER_CANCEL_REASONS } from '@/constants/cancelReasons';
 
 const { width, height } = Dimensions.get('window');
 
@@ -79,11 +81,13 @@ const BIKES = [
 const rideTypeFor = (id: string): Ride['type'] =>
   id === 'standard' ? 'Standard' : id === 'bossu' ? 'Bossu' : 'Premium';
 
-// Affordable, minimum-floored fares live in services/pricing.ts. This is the
-// estimate for the demo trip length until live routing distance is wired in.
+// Affordable, minimum-floored fares live in services/pricing.ts. These are
+// only the placeholder trip length shown before a real pickup+destination
+// have been geocoded into an actual route (see tripEstimate in HomeScreen).
 const EST_KM = 6.4;
 const EST_MIN = 16;
-const fareFor = (id: string): number => estimateFare(rideTypeFor(id), EST_KM, EST_MIN);
+const fareFor = (id: string, km: number = EST_KM, min: number = EST_MIN): number =>
+  estimateFare(rideTypeFor(id), km, min);
 
 type BookingState = 'idle' | 'confirm' | 'searching' | 'found';
 type PayMethod = 'wallet' | 'cash' | 'momo';
@@ -93,12 +97,46 @@ export default function HomeScreen() {
   const { user, requestRide, cancelRide, walletBalance, rides, savedPlaces, addSavedPlace, removeSavedPlace, navMarker } = useApp();
   // Rider loyalty: completed trips drive the tier + its standing fare discount.
   const completedRides = rides.filter((r) => r.status === 'completed').length;
-  const effFare = (id: string) => applyRiderDiscount(fareFor(id), completedRides);
+  const effFare = (id: string) => applyRiderDiscount(fareFor(id, estKm, estMin), completedRides);
   const router = useRouter();
   const [selectedService, setSelectedService] = useState('standard');
   const [selectedBike, setSelectedBike] = useState(BIKES[0]);
-  const [pickup, setPickup] = useState('Accra Mall, East Legon');
-  const [destination, setDestination] = useState('Osu Oxford Street');
+  const [pickup, setPickup] = useState('Locating you…');
+  const [destination, setDestination] = useState('');
+  // True once the rider has typed/selected a pickup themselves — after that we
+  // stop overwriting the field with the reverse-geocoded GPS address.
+  const pickupTouchedRef = useRef(false);
+
+  // Real trip distance/duration once both pickup + destination are set — the
+  // fare card shows nothing bookable until this resolves, instead of quoting
+  // a fixed demo-length trip for wherever the rider hasn't actually said
+  // they're going yet.
+  const [tripEstimate, setTripEstimate] = useState<{ km: number; min: number } | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  useEffect(() => {
+    const from = pickup.trim();
+    const to = destination.trim();
+    if (!from || from === 'Locating you…' || !to) { setTripEstimate(null); return; }
+    let alive = true;
+    setEstimating(true);
+    const t = setTimeout(async () => {
+      try {
+        const [fromLL, toLL] = await Promise.all([geocode(from), geocode(to)]);
+        if (!alive) return;
+        if (!fromLL || !toLL) { setTripEstimate(null); return; }
+        const route = await getRoute(fromLL, toLL);
+        if (alive) setTripEstimate({ km: route.distanceKm, min: route.durationMin });
+      } catch {
+        if (alive) setTripEstimate(null);
+      } finally {
+        if (alive) setEstimating(false);
+      }
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+  }, [pickup, destination]);
+  const estKm = tripEstimate?.km ?? EST_KM;
+  const estMin = tripEstimate?.min ?? EST_MIN;
+  const hasRealTrip = !!tripEstimate;
   const [bookingState, setBookingState] = useState<BookingState>('idle');
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
@@ -130,10 +168,23 @@ export default function HomeScreen() {
 
   const pickSuggestion = (s: PlaceSuggestion) => {
     Haptics.selectionAsync();
-    if (activeField === 'pickup') setPickup(s.label);
+    if (activeField === 'pickup') { pickupTouchedRef.current = true; setPickup(s.label); }
     else if (activeField === 'destination') setDestination(s.label);
     setActiveField(null);
     setSuggestions([]);
+  };
+
+  // Seed the pickup field from the rider's actual GPS position (reported once
+  // LiveMap resolves its first fix) instead of leaving it on a placeholder
+  // that has nothing to do with where the live map puck actually is. Skipped
+  // if the rider already typed/picked a pickup themselves.
+  const handleUserLocation = (coord: [number, number]) => {
+    reverseGeocode(coord).then((label) => {
+      if (pickupTouchedRef.current) return;
+      // Falls back to a plain label rather than leaving "Locating you…"
+      // stuck forever if reverse geocoding fails (offline, no result, etc).
+      setPickup(label ?? 'Current location');
+    });
   };
 
   const isWeb = Platform.OS === 'web';
@@ -159,6 +210,11 @@ export default function HomeScreen() {
   }, [bookingState, activeRideId]);
 
   const handleBookNow = () => {
+    if (!destination.trim()) {
+      setActiveField('destination');
+      Alert.alert('Where to?', 'Enter a destination before booking.');
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBookingState('confirm');
   };
@@ -202,15 +258,28 @@ export default function HomeScreen() {
     });
   };
 
-  const handleCloseBooking = () => {
-    if (bookingState === 'searching' && activeRideId) {
-      cancelRide(activeRideId);
-    }
+  const [showSearchCancelSheet, setShowSearchCancelSheet] = useState(false);
+
+  const closeBookingModal = () => {
     unwatchRef.current?.();
     unwatchRef.current = null;
     setActiveRideId(null);
     setMatchedRide(null);
     setBookingState('idle');
+  };
+
+  const handleCloseBooking = () => {
+    if (bookingState === 'searching' && activeRideId) {
+      setShowSearchCancelSheet(true);
+      return;
+    }
+    closeBookingModal();
+  };
+
+  const confirmSearchCancel = async (reason: string) => {
+    setShowSearchCancelSheet(false);
+    if (activeRideId) await cancelRide(activeRideId, { cancelledBy: 'rider', reason });
+    closeBookingModal();
   };
 
   const handleTrackRide = () => {
@@ -240,7 +309,7 @@ export default function HomeScreen() {
 
       {/* Full-page live map background (real map with the pickup→dest route) */}
       <View style={StyleSheet.absoluteFill}>
-        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser selfDot navMarker={navMarker} onMapTap={revealMapCtrl} />
+        <LiveMap ref={mapRef} width={width} height={height} mode="route" centerOnUser selfDot navMarker={navMarker} onMapTap={revealMapCtrl} onUserLocation={handleUserLocation} />
       </View>
 
       {/* Tap-to-reveal zoom + recenter controls (right side, auto-hiding). */}
@@ -261,7 +330,7 @@ export default function HomeScreen() {
             <TextInput
               style={styles.routeInput}
               value={pickup}
-              onChangeText={setPickup}
+              onChangeText={(t) => { pickupTouchedRef.current = true; setPickup(t); }}
               onFocus={() => setActiveField('pickup')}
               placeholder="Set pickup point"
               placeholderTextColor="#71717A"
@@ -363,15 +432,23 @@ export default function HomeScreen() {
           <View style={styles.vehicleTopRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.bikeName}>{selectedBike.name}</Text>
-              <View style={styles.fareRow}>
-                <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
-                {completedRides >= 10 && (
-                  <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id).toFixed(2)}</Text>
-                )}
-                <Text style={styles.fareSub}> est. fare</Text>
-                {sheetCollapsed && <Text style={styles.fareSub}> · {selectedBike.eta} away</Text>}
-              </View>
-              {!sheetCollapsed && <Text style={styles.fareFormula}>{rateLabel(rideTypeFor(selectedBike.id))}</Text>}
+              {!destination.trim() ? (
+                <Text style={styles.fareSub}>Enter a destination to see the fare</Text>
+              ) : estimating ? (
+                <Text style={styles.fareSub}>Calculating fare…</Text>
+              ) : (
+                <View style={styles.fareRow}>
+                  <Text style={styles.farePrice}>₵{effFare(selectedBike.id).toFixed(2)}</Text>
+                  {completedRides >= 10 && (
+                    <Text style={styles.fareStrike}>₵{fareFor(selectedBike.id, estKm, estMin).toFixed(2)}</Text>
+                  )}
+                  <Text style={styles.fareSub}> est. fare</Text>
+                  {sheetCollapsed && <Text style={styles.fareSub}> · {selectedBike.eta} away</Text>}
+                </View>
+              )}
+              {!sheetCollapsed && destination.trim() && !estimating && (
+                <Text style={styles.fareFormula}>{rateLabel(rideTypeFor(selectedBike.id))}</Text>
+              )}
             </View>
             <Ionicons name={sheetCollapsed ? 'chevron-up' : 'chevron-down'} size={20} color="#71717A" />
           </View>
@@ -397,9 +474,16 @@ export default function HomeScreen() {
           </View>
         )}
 
-        <TouchableOpacity style={styles.bookNowBtn} onPress={handleBookNow} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={[styles.bookNowBtn, (!hasRealTrip || estimating) && styles.bookNowBtnDisabled]}
+          onPress={handleBookNow}
+          disabled={estimating}
+          activeOpacity={0.85}
+        >
           <Ionicons name="bicycle" size={18} color="#000000" />
-          <Text style={styles.bookNowText}>Book {selectedBike.name}</Text>
+          <Text style={styles.bookNowText}>
+            {destination.trim() ? `Book ${selectedBike.name}` : 'Enter destination'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -430,6 +514,8 @@ export default function HomeScreen() {
                   destination={destination}
                   walletBalance={walletBalance}
                   completedRides={completedRides}
+                  estKm={estKm}
+                  estMin={estMin}
                   onConfirm={handleConfirmRide}
                   onCancel={() => setBookingState('idle')}
                 />
@@ -438,6 +524,10 @@ export default function HomeScreen() {
                 <FoundView
                   driverName={matchedRide?.driverName ?? 'Your VELO driver'}
                   driverPhone={matchedRide?.driverPhone}
+                  driverRating={matchedRide?.driverRating}
+                  vehicle={matchedRide?.vehicle}
+                  driverLoc={matchedRide?.driverLoc}
+                  pickupCoord={matchedRide?.fromCoord}
                   rideId={activeRideId}
                   pickup={pickup}
                   destination={destination}
@@ -456,6 +546,14 @@ export default function HomeScreen() {
           </View>
         )}
       </Modal>
+
+      <CancelReasonSheet
+        visible={showSearchCancelSheet}
+        title="Cancel this search?"
+        reasons={RIDER_CANCEL_REASONS}
+        onDismiss={() => setShowSearchCancelSheet(false)}
+        onConfirm={confirmSearchCancel}
+      />
     </View>
   );
 }
@@ -479,6 +577,8 @@ function ConfirmView({
   destination,
   walletBalance,
   completedRides,
+  estKm,
+  estMin,
   onConfirm,
   onCancel,
 }: {
@@ -487,12 +587,14 @@ function ConfirmView({
   destination: string;
   walletBalance: number;
   completedRides: number;
+  estKm: number;
+  estMin: number;
   onConfirm: (scheduledFor?: string, payMethod?: PayMethod, finalFare?: number, promoCode?: string) => void;
   onCancel: () => void;
 }) {
   const [scheduleMin, setScheduleMin] = useState(0);
   const scheduled = scheduleMin > 0;
-  const baseFare = fareFor(bike.id);
+  const baseFare = fareFor(bike.id, estKm, estMin);
   const loyaltyFare = applyRiderDiscount(baseFare, completedRides); // loyalty-adjusted
   const saved = Math.round((baseFare - loyaltyFare) * 100) / 100;
 
@@ -768,6 +870,10 @@ function SearchingView({
 function FoundView({
   driverName,
   driverPhone,
+  driverRating,
+  vehicle,
+  driverLoc,
+  pickupCoord,
   rideId,
   pickup,
   destination,
@@ -777,6 +883,10 @@ function FoundView({
 }: {
   driverName: string;
   driverPhone?: string | null;
+  driverRating?: number;
+  vehicle?: { plate: string; model: string; color: string } | null;
+  driverLoc?: { lat: number; lng: number; at: number } | null;
+  pickupCoord?: { lat: number; lng: number } | null;
   rideId?: string | null;
   pickup: string;
   destination: string;
@@ -784,6 +894,11 @@ function FoundView({
   onTrackRide: () => void;
   onMessage: () => void;
 }) {
+  // Real ETA from the driver's live position to the pickup point when both are
+  // known; otherwise an honest "on the way" instead of a made-up minute count.
+  const etaLabel = driverLoc && pickupCoord
+    ? `${etaMinutes(distanceKm([driverLoc.lng, driverLoc.lat], [pickupCoord.lng, pickupCoord.lat]))} min away`
+    : 'On the way';
   const handleCall = () => {
     const num = (driverPhone || '').replace(/\s/g, '');
     if (!num) {
@@ -793,9 +908,13 @@ function FoundView({
     Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot place call', 'Calling is not available on this device.'));
   };
 
-  const handleShare = () => {
+  const handleShare = async () => {
+    // Turns on the public tracking link for this ride so whoever gets the
+    // message can actually watch it, not just read that it exists.
+    const url = rideId ? await enableSharing(rideId).catch(() => null) : null;
+    const link = url ? ` Track live: ${url}` : '';
     Share.share({
-      message: `I'm on a VELO ride with ${driverName} from ${pickup} to ${destination}. Track me on VELO.`,
+      message: `I'm on a VELO ride with ${driverName} from ${pickup} to ${destination}.${link}`,
     }).catch(() => {});
   };
 
@@ -817,16 +936,16 @@ function FoundView({
           <Text style={styles.confirmDetailLabel}>Rating</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Ionicons name="star" size={14} color="#FFD000" />
-            <Text style={styles.confirmDetailValue}>4.9</Text>
+            <Text style={styles.confirmDetailValue}>{(driverRating ?? 5).toFixed(1)}</Text>
           </View>
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>Bike Plate</Text>
-          <Text style={styles.confirmDetailValue}>GR-4521-22</Text>
+          <Text style={styles.confirmDetailValue}>{vehicle?.plate ?? 'Details pending'}</Text>
         </View>
         <View style={styles.confirmDetailRow}>
           <Text style={styles.confirmDetailLabel}>ETA</Text>
-          <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>4 min away</Text>
+          <Text style={[styles.confirmDetailValue, { color: '#22C55E' }]}>{etaLabel}</Text>
         </View>
       </View>
 
@@ -1237,6 +1356,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD000',
     borderRadius: 16,
     height: 50,
+  },
+  bookNowBtnDisabled: {
+    opacity: 0.5,
   },
   bookNowText: {
     fontSize: 15,

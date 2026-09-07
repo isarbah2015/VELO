@@ -18,10 +18,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useApp, type Ride } from '@/context/AppContext';
 import * as Location from 'expo-location';
-import { watchRide, updateRiderLocation } from '@/services/rides';
+import { watchRide, updateRiderLocation, enableSharing } from '@/services/rides';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import LiveMap, { type LiveMapHandle } from '@/components/LiveMap';
 import { bearing, distanceKm, etaMinutes, getRoute, type LngLat, type RouteResult } from '@/services/geo';
+import CancelReasonSheet from '@/components/CancelReasonSheet';
+import { RIDER_CANCEL_REASONS } from '@/constants/cancelReasons';
 
 const { width, height } = Dimensions.get('window');
 
@@ -200,19 +202,13 @@ export default function TrackingScreen() {
     );
   };
 
-  const handleCancel = () => {
-    Alert.alert('Cancel Ride', 'Are you sure you want to cancel this ride?', [
-      { text: 'No', style: 'cancel' },
-      {
-        text: 'Yes, Cancel',
-        style: 'destructive',
-        onPress: async () => {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          if (rideId) await cancelRide(rideId);
-          router.replace('/(tabs)');
-        },
-      },
-    ]);
+  const [showCancelSheet, setShowCancelSheet] = useState(false);
+  const handleCancel = () => setShowCancelSheet(true);
+  const confirmCancel = async (reason: string) => {
+    setShowCancelSheet(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (rideId) await cancelRide(rideId, { cancelledBy: 'rider', reason });
+    router.replace('/(tabs)');
   };
 
   const handleDone = async () => {
@@ -347,8 +343,10 @@ export default function TrackingScreen() {
               if (!num) { Alert.alert('No number yet', "Your driver's phone number isn't available yet."); return; }
               Linking.openURL(`tel:${num}`).catch(() => Alert.alert('Cannot place call', 'Calling is not available on this device.'));
             }}
-            onShare={() => {
-              Share.share({ message: `I'm on a VELO ride with ${driverName} from ${from} to ${to}. Track me on VELO.` }).catch(() => {});
+            onShare={async () => {
+              const url = rideId ? await enableSharing(rideId).catch(() => null) : null;
+              const link = url ? ` Track live: ${url}` : '';
+              Share.share({ message: `I'm on a VELO ride with ${driverName} from ${from} to ${to}.${link}` }).catch(() => {});
             }}
           />
         )}
@@ -377,6 +375,14 @@ export default function TrackingScreen() {
           />
         )}
       </View>
+
+      <CancelReasonSheet
+        visible={showCancelSheet}
+        title="Cancel this ride?"
+        reasons={RIDER_CANCEL_REASONS}
+        onDismiss={() => setShowCancelSheet(false)}
+        onConfirm={confirmCancel}
+      />
     </View>
   );
 }

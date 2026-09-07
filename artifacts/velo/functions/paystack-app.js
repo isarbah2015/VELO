@@ -102,7 +102,11 @@ function createPaystackApp(getSecretKey, getPublicKey) {
         if (metaUid !== req.uid) {
           return res.status(403).json({ status: false, message: 'Reference does not belong to you' });
         }
-        const amountGhs = Number(data.metadata.amountGhs) || data.amount / 100;
+        // Trust Paystack's own verified charge amount, never the metadata we
+        // (or a client hitting Paystack directly with the public key) attached
+        // at initialize time — metadata is self-reported and would otherwise
+        // let someone pay a token amount while claiming a large top-up.
+        const amountGhs = data.amount != null ? data.amount / 100 : Number(data.metadata.amountGhs) || 0;
         await creditWallet(db, { uid: req.uid, reference, amountGhs, channel: data.channel });
       }
       res.json({ status: true, paid, data: { reference, amount: data.amount, channel: data.channel } });

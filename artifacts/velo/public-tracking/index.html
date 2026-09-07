@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VELO — Live Trip</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #09090B;
+    color: #F4F4F5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: #131316;
+    border: 1px solid #27272A;
+    border-radius: 20px;
+    padding: 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: #FFD000; }
+  .brand span { font-weight: 800; font-size: 15px; letter-spacing: 0.5px; color: #FFD000; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #A1A1AA; font-size: 13px; margin: 0 0 20px; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255, 208, 0, 0.12); color: #FFD000;
+    border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 700;
+    margin-bottom: 20px;
+  }
+  .status-pill .live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #22C55E;
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .route { background: #1C1C1F; border: 1px solid #27272A; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .route-row { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; }
+  .route-row + .route-row { margin-top: 10px; }
+  .route-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .route-dot.pickup { background: #FFD000; }
+  .route-dot.dest { background: #EF4444; }
+  .driver-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .avatar {
+    width: 44px; height: 44px; border-radius: 22px; background: #FFD000;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #000; font-size: 18px; flex-shrink: 0;
+  }
+  .driver-name { font-weight: 700; font-size: 15px; }
+  .driver-sub { color: #71717A; font-size: 12px; margin-top: 2px; }
+  a.map-link {
+    display: block; text-align: center; background: #FFD000; color: #000;
+    text-decoration: none; font-weight: 800; font-size: 14px;
+    border-radius: 14px; padding: 14px; margin-top: 4px;
+  }
+  .empty { text-align: center; padding: 20px 0; }
+  .empty .icon { font-size: 32px; margin-bottom: 10px; }
+  .empty p { color: #A1A1AA; font-size: 14px; line-height: 1.5; margin: 0; }
+  .footer { text-align: center; color: #52525B; font-size: 11px; margin-top: 20px; }
+</style>
+</head>
+<body>
+  <div class="card" id="card" role="main" aria-live="polite">
+    <div class="brand"><span class="dot" aria-hidden="true"></span><span>VELO</span></div>
+    <div id="content">
+      <p class="sub">Loading trip…</p>
+    </div>
+  </div>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+  import { getFirestore, doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+
+  // Public client config — safe to embed (not a secret; access is governed by
+  // Firestore rules, see firestore.rules `publicTracking`).
+  const app = initializeApp({
+    apiKey: 'AIzaSyAU7KjVcRsKSWc6g9IonJSlallIDETtWdI',
+    authDomain: 'velo-ride-gh.firebaseapp.com',
+    projectId: 'velo-ride-gh',
+    storageBucket: 'velo-ride-gh.firebasestorage.app',
+    messagingSenderId: '485423622547',
+    appId: '1:485423622547:web:050f36c7cb18d3ff282066',
+  });
+  const db = getFirestore(app);
+
+  const content = document.getElementById('content');
+  const rideId = (location.pathname.match(/\/track\/([^/]+)/) || [])[1];
+
+  const STATUS_LABEL = {
+    accepted: 'Driver is on the way to pickup',
+    arrived: 'Driver has arrived at pickup',
+    in_progress: 'Trip in progress',
+  };
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = String(s ?? '');
+    return d.innerHTML;
+  }
+
+  function renderEmpty(message) {
+    content.innerHTML = `
+      <div class="empty">
+        <div class="icon" aria-hidden="true">🏍️</div>
+        <p>${escapeHtml(message)}</p>
+      </div>`;
+  }
+
+  function renderRide(t) {
+    const label = STATUS_LABEL[t.status] || 'Trip update';
+    const initial = (t.driverName || '?').trim().charAt(0).toUpperCase();
+    const mapLink = t.driverLoc
+      ? `<a class="map-link" href="https://www.google.com/maps?q=${t.driverLoc.lat},${t.driverLoc.lng}" target="_blank" rel="noopener">View on map</a>`
+      : '';
+    content.innerHTML = `
+      <div class="status-pill"><span class="live-dot" aria-hidden="true"></span>${escapeHtml(label)}</div>
+      <div class="driver-row">
+        <div class="avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+        <div>
+          <div class="driver-name">${escapeHtml(t.driverName || 'VELO driver')}</div>
+          ${t.vehicle ? `<div class="driver-sub">${escapeHtml(t.vehicle.color || '')} ${escapeHtml(t.vehicle.model || '')} · ${escapeHtml(t.vehicle.plate || '')}</div>` : ''}
+        </div>
+      </div>
+      <div class="route">
+        <div class="route-row"><span class="route-dot pickup" aria-hidden="true"></span>${escapeHtml(t.from || 'Pickup')}</div>
+        <div class="route-row"><span class="route-dot dest" aria-hidden="true"></span>${escapeHtml(t.to || 'Destination')}</div>
+      </div>
+      ${mapLink}`;
+  }
+
+  if (!rideId) {
+    renderEmpty("This isn't a valid VELO tracking link.");
+  } else {
+    onSnapshot(
+      doc(db, 'publicTracking', rideId),
+      (snap) => {
+        if (!snap.exists()) {
+          renderEmpty('This trip has ended, or the link is no longer active.');
+          return;
+        }
+        renderRide(snap.data());
+      },
+      () => renderEmpty('Could not load this trip. Check your connection and reload.')
+    );
+  }
+</script>
+
+  <div class="footer">Shared from the VELO app · Ghana 🇬🇭</div>
+</body>
+</html>

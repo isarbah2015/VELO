@@ -5,9 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
-// Support contact — same number surfaced in forgot-password recovery.
-const SUPPORT_PHONE = '+233200000000';
-const SUPPORT_EMAIL = 'support@velo-ride.com';
+const SUPPORT_EMAIL = 'westhubsupport@gmail.com';
 
 const FAQS: { q: string; a: string }[] = [
   {
@@ -97,21 +95,6 @@ export default function FaqScreen() {
         })}
 
         <Text style={styles.contactHeading}>Still need help?</Text>
-        <TouchableOpacity
-          style={styles.contactRow}
-          onPress={() => Linking.openURL(`https://wa.me/${SUPPORT_PHONE.replace('+', '')}`)}
-          activeOpacity={0.8}
-        >
-          <View style={[styles.contactIcon, { backgroundColor: 'rgba(37,211,102,0.12)' }]}>
-            <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.contactLabel}>Chat on WhatsApp</Text>
-            <Text style={styles.contactSub}>{SUPPORT_PHONE}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#3F3F46" />
-        </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.contactRow}
           onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}

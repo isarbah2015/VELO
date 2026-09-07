@@ -51,8 +51,12 @@ const NEARBY: [number, number][] = [
 
 // The app's branded MapTiler dark vector style — shared by the rider home,
 // the Live Map tab and the driver dashboard so every map looks identical.
-const MAP_STYLE =
-  'https://api.maptiler.com/maps/019fb72b-da2a-7737-bf82-300a0176ecaa/style.json?key=dac69jMnq2JsIOwiXh9p';
+// Key overridable via EXPO_PUBLIC_MAPTILER_KEY (see .env.example) so it can be
+// rotated without a code change — restrict it to the app's bundle ID/domain
+// in the MapTiler dashboard, since it still ships inside the built app either
+// way (an EXPO_PUBLIC_ var is inlined at build time, not a true server secret).
+const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || 'dac69jMnq2JsIOwiXh9p';
+const MAP_STYLE = `https://api.maptiler.com/maps/019fb72b-da2a-7737-bf82-300a0176ecaa/style.json?key=${MAPTILER_KEY}`;
 
 // A distraction-free variant of the branded style with POI labels/icons hidden
 // (shops, landmarks, etc.) for the in-trip driver view — like Uber/Yandex nav.
@@ -183,6 +187,7 @@ interface LiveMapProps {
   heading?: number; // driver's course (deg) to orient the vehicle marker
   selfDot?: boolean; // draw the user as a plain GPS location dot, not a bike
   onMapTap?: () => void; // a tap on the map (used to reveal the zoom controls)
+  onUserLocation?: (coord: [number, number]) => void; // fires once the GPS fix used to center/mark the user (centerOnUser) resolves
 }
 
 const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
@@ -202,6 +207,7 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
   centerOnUser,
   selfDot,
   onMapTap,
+  onUserLocation,
 }, ref) {
   const p = pickup ?? PICKUP;
   const d = dest ?? DEST;
@@ -263,7 +269,10 @@ const LiveMap = React.forwardRef<LiveMapHandle, LiveMapProps>(function LiveMap({
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const ll: [number, number] = [pos.coords.longitude, pos.coords.latitude];
         userLocRef.current = ll;
-        if (alive) setUserLoc(ll);
+        if (alive) {
+          setUserLoc(ll);
+          onUserLocation?.(ll);
+        }
       } catch {
         /* permission denied or location off — fall back to the default view */
       }

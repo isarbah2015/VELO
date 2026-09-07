@@ -73,9 +73,9 @@ Payment Methods:
 • VELO Wallet balance
 
 Cancellation Policy:
-• Free cancellation within 2 minutes of booking confirmation
-• Cancellation fee of ₵5.00 applies after 2 minutes or if the driver has already arrived at the pickup location
-• No-show fee of ₵10.00 applies if the rider is not at the pickup location within 5 minutes of the driver's arrival`,
+• Cancelling a ride is always free — VELO does not charge a cancellation fee at any stage, for riders or drivers
+• You'll be asked to select a reason when you cancel, so we can improve matching and driver reliability
+• Repeated cancellations may affect your account's rating and future matching priority`,
   },
   {
     title: '6. Driver Terms',
@@ -149,10 +149,10 @@ By continuing to access or use our Service after those revisions become effectiv
     title: '13. Contact Us',
     body: `If you have any questions about these Terms, please contact us:
 
-• Email: legal@velo-ride.com
+• Email: westhubsupport@gmail.com
 • Phone: +233 30 123 4567
 • Address: VELO Technologies Ltd., Accra, Ghana
-• Website: www.velo-ride.com
+• Support: https://velo-ride-gh.web.app/support
 
 Last Updated: July 30, 2026`,
   },

@@ -18,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useApp, type Role } from '@/context/AppContext';
 import Bounded from '@/components/Bounded';
 import { callEmergency, EMERGENCY_NUMBER } from '@/services/safety';
+import { enableSharing } from '@/services/rides';
 import { NAV_ICONS } from '@/services/navMarker';
 import { riderTierProgress } from '@/services/riderTiers';
 import { tierProgress } from '@/services/tiers';
@@ -77,9 +78,10 @@ const ROLE_LABEL: Record<Role, string> = { rider: 'Passenger', driver: 'Driver' 
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, role, rides, driverStatus, walletBalance, logout, switchRole, navMarker, setNavMarker } = useApp();
+  const { user, role, rides, driverStatus, walletBalance, logout, deleteAccount, navMarker, setNavMarker } = useApp();
   const router = useRouter();
   const [lang, setLang] = useState<LanguageCode>('en');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { getLanguage().then(setLang); }, []);
   const isWeb = Platform.OS === 'web';
@@ -117,9 +119,12 @@ export default function ProfileScreen() {
 
   const shareLocation = async () => {
     const active = rides.find((r) => r.status === 'accepted' || r.status === 'in_progress');
-    const msg = active
-      ? `I'm on a VELO ride from ${active.from} to ${active.to}. Track my trip and check in on me.`
-      : `I'm using VELO for my Okada rides in Ghana. I'll share my live trip with you next time I ride.`;
+    let msg = `I'm using VELO for my Okada rides in Ghana. I'll share my live trip with you next time I ride.`;
+    if (active) {
+      const url = await enableSharing(active.id).catch(() => null);
+      const link = url ? ` Track live: ${url}` : '';
+      msg = `I'm on a VELO ride from ${active.from} to ${active.to}.${link}`;
+    }
     try {
       await Share.share({ message: msg });
     } catch {
@@ -167,14 +172,45 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const handleSwitchRole = (next: Role) => {
-    if (next === role) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Navigate first so the tab set swaps on this same frame — then persist the
-    // role in the background. switchRole also flips the role in context
-    // optimistically, so nothing waits on the Firestore round-trip.
-    router.replace(next === 'driver' ? '/(driver-tabs)' : '/(tabs)');
-    switchRole(next).catch(() => {});
+  // Apple Guideline 5.1.1(v) / Google Play data-safety: an app that supports
+  // account creation must let people delete their account from inside the
+  // app, not just "contact support". Double-confirm since it's irreversible.
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This permanently deletes your VELO profile, wallet, saved places, and photos. Your ride history may be kept for legal/tax records as described in our Privacy Policy. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are you absolutely sure?',
+              'Your account will be deleted immediately and you’ll be signed out.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete My Account',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setDeleting(true);
+                    try {
+                      await deleteAccount();
+                      router.replace('/(auth)/login');
+                    } catch {
+                      Alert.alert('Could not delete account', 'Please check your connection and try again.');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -323,28 +359,6 @@ export default function ProfileScreen() {
           );
         })()}
 
-        {/* Role switcher */}
-        <View style={styles.roleSwitchCard}>
-          <Text style={styles.roleSwitchTitle}>Account Mode</Text>
-          <View style={styles.roleSwitchRow}>
-            {(['rider', 'driver'] as Role[]).map((r) => (
-              <TouchableOpacity
-                key={r}
-                style={[styles.roleSwitchChip, role === r && styles.roleSwitchChipActive]}
-                onPress={() => handleSwitchRole(r)}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name={r === 'rider' ? 'bicycle-outline' : 'briefcase-outline'}
-                  size={16}
-                  color={role === r ? '#000000' : '#A1A1AA'}
-                />
-                <Text style={[styles.roleSwitchText, role === r && styles.roleSwitchTextActive]}>{ROLE_LABEL[r]}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
         {/* Wallet Card */}
         <TouchableOpacity style={styles.walletCard} activeOpacity={0.85} onPress={() => router.push('/wallet')}>
           <View style={styles.walletLeft}>
@@ -437,6 +451,15 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
           <Ionicons name="log-out-outline" size={20} color="#EF4444" />
           <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.deleteBtn, deleting && { opacity: 0.5 }]}
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.deleteText}>{deleting ? 'Deleting…' : 'Delete Account'}</Text>
         </TouchableOpacity>
 
         <Text style={styles.version}>VELO v1.0.0 · Made in Ghana 🇬🇭</Text>
@@ -600,16 +623,6 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: 'transparent',
   },
   navSwatchActive: { borderColor: '#FFFFFF' },
-  roleSwitchCard: {
-    marginHorizontal: 16,
-    backgroundColor: '#1C1C1F',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#27272A',
-    gap: 10,
-  },
   loyaltyCard: {
     marginHorizontal: 16,
     backgroundColor: '#1C1C1F',
@@ -643,41 +656,6 @@ const styles = StyleSheet.create({
   },
   loyaltyBarFill: { height: '100%', borderRadius: 3, backgroundColor: '#FFD000' },
   loyaltyNext: { color: '#71717A', fontSize: 12 },
-  roleSwitchTitle: {
-    fontSize: 12,
-    color: '#52525B',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  roleSwitchRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  roleSwitchChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#252528',
-    borderWidth: 1,
-    borderColor: '#3F3F46',
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
-  roleSwitchChipActive: {
-    backgroundColor: '#FFD000',
-    borderColor: '#FFD000',
-  },
-  roleSwitchText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#A1A1AA',
-  },
-  roleSwitchTextActive: {
-    color: '#000000',
-  },
   walletCard: {
     marginHorizontal: 16,
     backgroundColor: '#1C1C1F',
@@ -803,6 +781,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#EF4444',
+  },
+  deleteBtn: {
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  deleteText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#71717A',
+    textDecorationLine: 'underline',
   },
   version: {
     textAlign: 'center',

@@ -23,6 +23,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { triggerSOS, callEmergency, shareViaSMS, EMERGENCY_NUMBER } from '@/services/safety';
 import { Alert } from 'react-native';
+import CancelReasonSheet from '@/components/CancelReasonSheet';
+import { DRIVER_CANCEL_REASONS } from '@/constants/cancelReasons';
 
 type LngLat = [number, number];
 
@@ -212,26 +214,20 @@ export default function DriverTripScreen() {
     await safeStatus('in_progress');
   };
 
-  // Stage 3: rider never showed after the no-show window — cancel and return.
-  const cancelNoShow = () => {
-    Alert.alert(
-      'Cancel — rider no-show',
-      `${riderName} hasn't shown up after ${NO_SHOW_MIN} minutes. Cancel this trip?`,
-      [
-        { text: 'Keep waiting', style: 'cancel' },
-        {
-          text: 'Cancel trip',
-          style: 'destructive',
-          onPress: async () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            watchRef.current?.remove();
-            await clearActiveTrip();
-            await safeStatus('cancelled');
-            router.replace('/(driver-tabs)');
-          },
-        },
-      ]
-    );
+  // Cancelling an accepted trip is always free for the driver too — a reason
+  // is required so patterns (no-shows, unsafe pickups, etc.) can be reviewed.
+  const [showCancelSheet, setShowCancelSheet] = useState(false);
+  const openCancelSheet = () => {
+    Haptics.selectionAsync();
+    setShowCancelSheet(true);
+  };
+  const confirmCancel = async (reason: string) => {
+    setShowCancelSheet(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    watchRef.current?.remove();
+    await clearActiveTrip();
+    await safeStatus('cancelled', { cancelledBy: 'driver', cancellationReason: reason });
+    router.replace('/(driver-tabs)');
   };
 
   // Stage 4 → 5: end ride at the drop-off. Books the fare + shows the summary.
@@ -548,6 +544,9 @@ export default function DriverTripScreen() {
             <Text style={styles.miniLabel} numberOfLines={1}>PICKUP · {riderName}</Text>
             <Text style={styles.miniTo} numberOfLines={1}>{from}</Text>
           </View>
+          <TouchableOpacity style={styles.miniCancel} onPress={openCancelSheet} activeOpacity={0.85}>
+            <Ionicons name="close" size={18} color="#EF4444" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.miniCall} onPress={handleCall} activeOpacity={0.85}>
             <Ionicons name="call" size={18} color="#FFD000" />
           </TouchableOpacity>
@@ -593,12 +592,10 @@ export default function DriverTripScreen() {
             <Ionicons name="play" size={20} color="#000" />
             <Text style={styles.primaryText}>Start ride</Text>
           </TouchableOpacity>
-          {canNoShow && (
-            <TouchableOpacity style={styles.noShowBtn} onPress={cancelNoShow} activeOpacity={0.85}>
-              <Ionicons name="close-circle-outline" size={18} color="#EF4444" />
-              <Text style={styles.noShowText}>Cancel — rider no-show</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.noShowBtn} onPress={openCancelSheet} activeOpacity={0.85}>
+            <Ionicons name="close-circle-outline" size={18} color="#EF4444" />
+            <Text style={styles.noShowText}>{canNoShow ? 'Cancel — rider no-show' : 'Cancel trip'}</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -674,6 +671,14 @@ export default function DriverTripScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      <CancelReasonSheet
+        visible={showCancelSheet}
+        title="Cancel this trip?"
+        reasons={DRIVER_CANCEL_REASONS}
+        onDismiss={() => setShowCancelSheet(false)}
+        onConfirm={confirmCancel}
+      />
     </View>
   );
 }
@@ -721,6 +726,10 @@ const styles = StyleSheet.create({
   miniCall: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: '#1C1C1F',
     borderWidth: 1, borderColor: '#3F3F46', alignItems: 'center', justifyContent: 'center',
+  },
+  miniCancel: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#1C1C1F',
+    borderWidth: 1, borderColor: '#3F1F22', alignItems: 'center', justifyContent: 'center',
   },
   miniComplete: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

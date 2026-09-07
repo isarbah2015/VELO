@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  FlatList, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  Alert, FlatList, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { sendMessage, watchMessages, markChatRead, watchChatReads, type ChatMessage } from '@/services/chat';
+import { getRide } from '@/services/rides';
+import { blockUser } from '@/services/blocking';
 
 // Canned one-tap messages, tuned per role so a driver and rider each get the
 // phrases they actually reach for during pickup coordination.
@@ -39,6 +41,58 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [reads, setReads] = useState<Record<string, number>>({});
   const listRef = useRef<FlatList<ChatMessage>>(null);
+
+  // The route only carries otherName (for the header) — resolve the other
+  // party's actual uid (needed to block them) and the trip's from/to (needed
+  // to prefill a report) from the ride doc itself, once.
+  const [otherUid, setOtherUid] = useState<string | null>(null);
+  const [rideInfo, setRideInfo] = useState<{ from?: string; to?: string }>({});
+  useEffect(() => {
+    if (!rideId || !user) return;
+    getRide(rideId).then((ride) => {
+      if (!ride) return;
+      setOtherUid(ride.riderId === user.uid ? ride.driverId : ride.riderId);
+      setRideInfo({ from: ride.from, to: ride.to });
+    }).catch(() => {});
+  }, [rideId, user]);
+
+  const handleBlock = () => {
+    if (!user || !otherUid) return;
+    Alert.alert(
+      `Block ${otherName}?`,
+      `You won't be matched with ${otherName} again. This doesn't affect your current trip.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockUser(user.uid, otherUid);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Blocked', `${otherName} won't be matched with you again.`);
+            } catch {
+              Alert.alert('Could not block', 'Please check your connection and try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMore = () => {
+    Alert.alert(otherName, undefined, [
+      {
+        text: 'Report a problem',
+        onPress: () => router.push({
+          pathname: '/report-trip',
+          params: { rideId: rideId ?? '', from: rideInfo.from ?? '', to: rideInfo.to ?? '' },
+        }),
+      },
+      { text: `Block ${otherName}`, style: 'destructive', onPress: handleBlock },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   useEffect(() => {
     if (!rideId) return;
@@ -106,8 +160,8 @@ export default function ChatScreen() {
             <Text style={styles.headerSub}>On your trip</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.iconBtn} hitSlop={8}>
-          <Ionicons name="call" size={20} color="#FFD000" />
+        <TouchableOpacity style={styles.iconBtn} onPress={handleMore} hitSlop={8}>
+          <Ionicons name="ellipsis-vertical" size={20} color="#FFD000" />
         </TouchableOpacity>
       </View>
 

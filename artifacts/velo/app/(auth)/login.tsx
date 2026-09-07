@@ -89,8 +89,7 @@ export default function LoginScreen() {
       'VELO accounts are secured with your phone number. To reset your password, contact our support team and we\'ll verify your identity and help you back in.',
       [
         { text: 'Not now', style: 'cancel' },
-        { text: 'WhatsApp support', onPress: () => Linking.openURL('https://wa.me/233200000000').catch(() => {}) },
-        { text: 'Call support', onPress: () => Linking.openURL('tel:+233200000000').catch(() => {}) },
+        { text: 'Email support', onPress: () => Linking.openURL('mailto:westhubsupport@gmail.com').catch(() => {}) },
       ]
     );
   };

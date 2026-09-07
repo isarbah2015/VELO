@@ -1,9 +1,11 @@
 // Runtime: Node.js 22 (see engines in package.json + runtime in firebase.json).
-const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
-const { onRequest } = require('firebase-functions/v2/https');
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
+const { getStorage } = require('firebase-admin/storage');
 const { Expo } = require('expo-server-sdk');
 const { createPaystackApp, creditWallet } = require('./paystack-app');
 const { createPaystackClient } = require('./paystack-client');
@@ -155,9 +157,17 @@ exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) =
       await send(riderTokens, 'You have arrived 🎉', 'Thanks for riding with VELO. Rate your trip.', { rideId, type: 'completed' });
       break;
     case 'cancelled': {
-      // Notify whichever side did not trigger the cancel.
+      // Notify whichever side did not trigger the cancel, with the stated
+      // reason if one was given. Cancelling is always free for both sides.
       const driverTokens = await tokensFor(after.driverId);
-      await send([...riderTokens, ...driverTokens], 'Ride cancelled', 'This ride was cancelled.', { rideId, type: 'cancelled' });
+      const reasonSuffix = after.cancellationReason ? ` Reason: ${after.cancellationReason}` : '';
+      if (after.cancelledBy === 'driver') {
+        await send(riderTokens, 'Ride cancelled', `Your driver cancelled the ride.${reasonSuffix}`, { rideId, type: 'cancelled' });
+      } else if (after.cancelledBy === 'rider') {
+        await send(driverTokens, 'Ride cancelled', `The rider cancelled the ride.${reasonSuffix}`, { rideId, type: 'cancelled' });
+      } else {
+        await send([...riderTokens, ...driverTokens], 'Ride cancelled', 'This ride was cancelled.', { rideId, type: 'cancelled' });
+      }
       break;
     }
     case 'expired':
@@ -168,6 +178,39 @@ exports.onRideStatusChange = onDocumentUpdated('rides/{rideId}', async (event) =
     default:
       break;
   }
+});
+
+// Terminal ride states — once reached, a share link should stop showing
+// anything (the trip is over, so there's nothing live left to track).
+const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'expired']);
+
+// Mirrors a rider-shared ride into a public, unauthenticated-readable doc so
+// the "Share" links in the app (see services/rides.ts enableSharing) work for
+// anyone, without a VELO account — like Uber/Bolt's trip-tracking links.
+// Deliberately narrow: no phone numbers, no fare, nothing but what a stranger
+// glancing at the link should be able to see. Runs server-side specifically
+// so the client never has direct write access to this collection — see
+// firestore.rules (`publicTracking` is read-only from the client).
+exports.mirrorRideForSharing = onDocumentWritten('rides/{rideId}', async (event) => {
+  const rideId = event.params.rideId;
+  const after = event.data?.after?.exists ? event.data.after.data() : null;
+  const publicRef = db.doc(`publicTracking/${rideId}`);
+
+  if (!after || !after.sharingEnabled || TERMINAL_STATUSES.has(after.status)) {
+    await publicRef.delete().catch(() => {});
+    return;
+  }
+
+  await publicRef.set({
+    status: after.status ?? null,
+    riderName: after.riderName ?? null,
+    driverName: after.driverName ?? null,
+    from: after.from ?? null,
+    to: after.to ?? null,
+    vehicle: after.vehicle ?? null,
+    driverLoc: after.driverLoc ?? null,
+    updatedAt: new Date().toISOString(),
+  });
 });
 
 // ---- Paystack payments (wallet top-ups) --------------------------------
@@ -216,3 +259,28 @@ exports.paystackWebhook = onRequest(
     }
   },
 );
+
+// Account deletion (Apple Guideline 5.1.1(v) / Google Play data-safety
+// requirement: an app that lets you create an account must let you delete it
+// from inside the app). Runs with Admin privileges so it can remove the
+// caller's own data regardless of Firestore/Storage security rules, and can
+// delete the Auth user without requiring a recent re-login. Callers may only
+// ever delete their own uid — there is no "delete other user" path.
+exports.deleteAccount = onCall(async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
+
+  const bucket = getStorage().bucket();
+  await Promise.all([
+    db.doc(`users/${uid}`).delete().catch(() => {}),
+    db.doc(`drivers/${uid}`).delete().catch(() => {}),
+    bucket.deleteFiles({ prefix: `avatars/${uid}/` }).catch(() => {}),
+    bucket.deleteFiles({ prefix: `verification/${uid}/` }).catch(() => {}),
+  ]);
+
+  // Delete the Auth account last so a failure above still leaves the user
+  // able to retry (an already-deleted Auth account can't retry at all).
+  await getAuth().deleteUser(uid);
+
+  return { success: true };
+});

@@ -48,6 +48,10 @@ export interface Ride {
   rating?: number;
   // ISO datetime when a ride is booked for later; absent for on-demand rides.
   scheduledFor?: string;
+  // Set when status is 'cancelled' — who cancelled and why. VELO never
+  // charges a cancellation fee; both sides are required to state a reason.
+  cancelledBy?: 'rider' | 'driver';
+  cancellationReason?: string;
 }
 
 export interface PaymentMethod {
@@ -92,13 +96,13 @@ interface AppContextType {
   login: (phone: string, password: string) => Promise<void>;
   signup: (name: string, phone: string, password: string, role?: Role) => Promise<void>;
   logout: () => Promise<void>;
-  switchRole: (role: Role) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   updateProfile: (name: string) => Promise<void>;
   updateProfilePhoto: (uri: string) => Promise<void>;
 
   requestRide: (input: { from: string; to: string; type: Ride['type']; price: number; scheduledFor?: string; paymentMethod?: string; promoCode?: string | null }) => Promise<string>;
   refreshRides: () => Promise<void>;
-  cancelRide: (rideId: string) => Promise<void>;
+  cancelRide: (rideId: string, opts: { cancelledBy: 'rider' | 'driver'; reason: string }) => Promise<void>;
   completeRide: (rideId: string, extra: { durationMin: number; paymentMethod?: string; rating?: number }) => Promise<void>;
 
   savedPlaces: placeService.SavedPlace[];
@@ -222,6 +226,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await authService.logout();
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    await authService.deleteAccount();
+  }, []);
+
   // Edit-profile: persist the new name, then reflect it locally so the whole
   // app (profile header, chat, etc.) updates without a reload.
   const updateProfile = useCallback(async (name: string) => {
@@ -236,24 +244,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!firebaseUser) return;
     const url = await authService.updateUserPhoto(firebaseUser.uid, uri);
     setProfile((p) => (p ? { ...p, photoURL: url } : p));
-  }, [firebaseUser]);
-
-  // OPTIMIZED: Instant role switch — update UI immediately, then sync in background
-  const switchRole = useCallback(async (role: Role) => {
-    if (!firebaseUser) return;
-    setProfile((p) => (p ? { ...p, role } : p));
-    try {
-      await authService.setUserRole(firebaseUser.uid, role);
-      if (role === 'driver') {
-        const status = await driverService.getDriverStatus(firebaseUser.uid);
-        setDriverStatus(status);
-      } else {
-        setDriverStatus(null);
-      }
-    } catch (err) {
-      setProfile((p) => (p ? { ...p, role: p.role === 'driver' ? 'rider' : 'driver' } : p));
-      throw err;
-    }
   }, [firebaseUser]);
 
   const refreshRides = useCallback(async () => {
@@ -276,8 +266,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [firebaseUser, profile]);
 
-  const cancelRide = useCallback(async (rideId: string) => {
-    await rideService.updateRideStatus(rideId, 'cancelled');
+  const cancelRide = useCallback(async (rideId: string, opts: { cancelledBy: 'rider' | 'driver'; reason: string }) => {
+    await rideService.updateRideStatus(rideId, 'cancelled', {
+      cancelledBy: opts.cancelledBy,
+      cancellationReason: opts.reason,
+    });
     await refreshRides();
   }, [refreshRides]);
 
@@ -372,7 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     login,
     signup,
     logout,
-    switchRole,
+    deleteAccount,
     updateProfile,
     updateProfilePhoto,
     requestRide,
@@ -395,7 +388,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     isLoading, onboardChecked, authInitialized, isOnboarded, firebaseUser, profile, rides, paymentMethods, walletTransactions, driverStatus,
     savedPlaces, addSavedPlace, removeSavedPlace,
-    completeOnboarding, login, signup, logout, switchRole, updateProfile, updateProfilePhoto, requestRide, refreshRides, cancelRide, completeRide,
+    completeOnboarding, login, signup, logout, deleteAccount, updateProfile, updateProfilePhoto, requestRide, refreshRides, cancelRide, completeRide,
     addPaymentMethod, removePaymentMethod, setDefaultPayment, getDefaultPayment, topUpWallet, refreshWallet,
     refreshDriverStatus, setOnline, navMarker, setNavMarker,
   ]);

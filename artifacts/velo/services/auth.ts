@@ -7,7 +7,8 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from '@/config/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, storage, functions } from '@/config/firebase';
 import { makeReferralCode } from './referrals';
 
 export type Role = 'rider' | 'driver';
@@ -87,6 +88,15 @@ export function logout() {
   return signOut(auth);
 }
 
+// Permanently deletes the signed-in user's account: Firestore profile,
+// driver doc, avatar/verification photos, and the Auth account itself — done
+// server-side (see functions/index.js `deleteAccount`) so it can't be blocked
+// by security rules or Firebase's "requires recent login" re-auth check.
+export async function deleteAccount(): Promise<void> {
+  await httpsCallable(functions, 'deleteAccount')();
+  await signOut(auth).catch(() => {});
+}
+
 export function onAuthChange(callback: (user: FirebaseUser | null) => void) {
   return onAuthStateChanged(auth, callback);
 }
@@ -112,16 +122,4 @@ export async function updateUserPhoto(uid: string, uri: string): Promise<string>
   const url = await getDownloadURL(storageRef);
   await updateDoc(doc(db, 'users', uid), { photoURL: url });
   return url;
-}
-
-// Switching into Driver mode for the first time provisions the drivers/{uid}
-// doc lazily, since a rider who never drove has no earnings/status doc yet.
-export async function setUserRole(uid: string, role: Role) {
-  await updateDoc(doc(db, 'users', uid), { role });
-  if (role === 'driver') {
-    const driverSnap = await getDoc(doc(db, 'drivers', uid));
-    if (!driverSnap.exists()) {
-      await setDoc(doc(db, 'drivers', uid), { ...DEFAULT_DRIVER_DOC, updatedAt: serverTimestamp() });
-    }
-  }
 }
